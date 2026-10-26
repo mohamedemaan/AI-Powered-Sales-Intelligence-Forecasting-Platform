@@ -4,14 +4,33 @@ import React, { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useAuth } from '../../hooks/useAuth'
-import { ArrowLeft, Sparkles, ShieldCheck, Lock, Mail, ArrowRight } from 'lucide-react'
+import {
+  ArrowLeft,
+  Sparkles,
+  ShieldCheck,
+  Lock,
+  Mail,
+  User as UserIcon,
+  AtSign,
+  CheckCircle2,
+  ArrowRight,
+  Eye,
+  EyeOff
+} from 'lucide-react'
 
 function LoginFormContent() {
   const searchParams = useSearchParams()
   const initialMode = searchParams.get('mode') === 'register'
   const [isRegister, setIsRegister] = useState(initialMode)
+  
+  // Registration fields
+  const [name, setName] = useState('')
+  const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const { login, register, logout, user } = useAuth()
@@ -29,6 +48,22 @@ function LoginFormContent() {
     setErrorMsg(null)
 
     if (isRegister) {
+      if (!name.trim()) {
+        setErrorMsg('Please enter your full name.')
+        return
+      }
+      if (!username.trim() || username.trim().length < 3) {
+        setErrorMsg('Username must be at least 3 characters.')
+        return
+      }
+      if (/\s/.test(username)) {
+        setErrorMsg('Username cannot contain spaces.')
+        return
+      }
+      if (!email.trim() || !email.includes('@')) {
+        setErrorMsg('Please enter a valid corporate email.')
+        return
+      }
       if (password.length < 12) {
         setErrorMsg('Password must be at least 12 characters.')
         return
@@ -49,13 +84,31 @@ function LoginFormContent() {
         setErrorMsg('Password must contain at least one special character (!@#$%^&* etc).')
         return
       }
+      if (password !== confirmPassword) {
+        setErrorMsg('Passwords do not match. Please verify and re-enter confirm password.')
+        return
+      }
+    } else {
+      if (!email.trim()) {
+        setErrorMsg('Please enter your corporate email or username.')
+        return
+      }
+      if (!password) {
+        setErrorMsg('Please enter your password.')
+        return
+      }
     }
 
     setSubmitting(true)
 
     const result = isRegister 
-      ? await register(email, password)
-      : await login(email, password)
+      ? await register({
+          name: name.trim(),
+          username: username.trim(),
+          email: email.trim(),
+          password
+        })
+      : await login(email.trim(), password)
 
     if (!result.success) {
       const err = typeof result.error === 'string' ? result.error : 'Authentication failed. Please verify credentials.'
@@ -70,7 +123,7 @@ function LoginFormContent() {
       <div className="flex flex-col items-center justify-center min-h-screen px-4 py-12 bg-background">
         <div className="w-full max-w-md bg-surface p-8 rounded-2xl border border-slate-700 shadow-2xl space-y-6 text-center">
           <div className="w-16 h-16 bg-primary/20 text-primary rounded-2xl flex items-center justify-center mx-auto text-2xl font-bold shadow-inner">
-            {user.email.charAt(0).toUpperCase()}
+            {(user.full_name || user.email).charAt(0).toUpperCase()}
           </div>
           
           <div>
@@ -79,10 +132,19 @@ function LoginFormContent() {
               Authenticated Session
             </span>
             <h2 className="text-2xl font-bold text-white">Welcome Back</h2>
-            <p className="text-sm text-slate-400 mt-1 truncate">{user.email}</p>
+            <p className="text-sm text-slate-300 font-semibold mt-1 truncate">
+              {user.full_name || user.email}
+            </p>
+            {user.username && (
+              <p className="text-xs text-cyan-400 font-mono mt-0.5">@{user.username}</p>
+            )}
           </div>
 
           <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800 text-left space-y-2.5 text-xs">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Corporate Email:</span>
+              <span className="text-slate-200 font-mono truncate max-w-[200px]">{user.email}</span>
+            </div>
             <div className="flex justify-between items-center">
               <span className="text-slate-400">Assigned Role:</span>
               <span className="text-primary font-mono font-semibold bg-primary/10 px-2 py-0.5 rounded">
@@ -199,28 +261,85 @@ function LoginFormContent() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Field 1: Name (Create Account Only) */}
+            {isRegister && (
+              <div>
+                <label className="text-xs font-medium text-slate-300 block mb-1.5 flex items-center gap-1.5">
+                  <UserIcon className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Full Name</span>
+                </label>
+                <input 
+                  type="text" 
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Sarah Jenkins"
+                  className="w-full bg-slate-900/90 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm transition placeholder:text-slate-500"
+                />
+              </div>
+            )}
+
+            {/* Field 2: Username (Create Account Only) */}
+            {isRegister && (
+              <div>
+                <label className="text-xs font-medium text-slate-300 block mb-1.5 flex items-center gap-1.5">
+                  <AtSign className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Username</span>
+                </label>
+                <input 
+                  type="text" 
+                  required
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value.replace(/\s+/g, ''))}
+                  placeholder="sarah_jenkins"
+                  className="w-full bg-slate-900/90 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm transition placeholder:text-slate-500"
+                />
+              </div>
+            )}
+
+            {/* Field 3: Corporate Email */}
             <div>
               <label className="text-xs font-medium text-slate-300 block mb-1.5 flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-slate-400" />
-                <span>Corporate Email</span>
+                <span>{isRegister ? 'Corporate Email' : 'Corporate Email or Username'}</span>
               </label>
               <input 
-                type="email" 
+                type={isRegister ? 'email' : 'text'} 
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="analyst@enterprise.com"
+                placeholder={isRegister ? 'analyst@enterprise.com' : 'analyst@enterprise.com or sarah_j'}
                 className="w-full bg-slate-900/90 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm transition placeholder:text-slate-500"
               />
             </div>
 
+            {/* Field 4: Password */}
             <div>
-              <label className="text-xs font-medium text-slate-300 block mb-1.5 flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5 text-slate-400" />
-                <span>Password</span>
+              <label className="text-xs font-medium text-slate-300 block mb-1.5 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Password</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-[11px] text-slate-400 hover:text-cyan-400 transition flex items-center gap-1"
+                >
+                  {showPassword ? (
+                    <>
+                      <EyeOff className="w-3 h-3" />
+                      <span>Hide</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3 h-3" />
+                      <span>Show</span>
+                    </>
+                  )}
+                </button>
               </label>
               <input 
-                type="password" 
+                type={showPassword ? 'text' : 'password'} 
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -229,6 +348,36 @@ function LoginFormContent() {
               />
             </div>
 
+            {/* Field 5: Confirm Password (Create Account Only) */}
+            {isRegister && (
+              <div>
+                <label className="text-xs font-medium text-slate-300 block mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Confirm Password</span>
+                  </span>
+                  {confirmPassword && (
+                    <span className={`text-[11px] font-medium ${password === confirmPassword ? 'text-emerald-400' : 'text-danger'}`}>
+                      {password === confirmPassword ? '✓ Passwords match' : '✗ Passwords do not match'}
+                    </span>
+                  )}
+                </label>
+                <input 
+                  type={showPassword ? 'text' : 'password'} 
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  className={`w-full bg-slate-900/90 text-white px-3.5 py-2.5 rounded-xl border ${
+                    confirmPassword && password !== confirmPassword 
+                      ? 'border-danger focus:border-danger focus:ring-danger' 
+                      : 'border-slate-700 focus:border-primary focus:ring-primary'
+                  } focus:outline-none focus:ring-1 text-sm transition placeholder:text-slate-500`}
+                />
+              </div>
+            )}
+
+            {/* Interactive Password Requirements Helper (Create Account Only) */}
             {isRegister && (
               <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1.5">
                 <span className="font-semibold text-slate-300 block text-xs">Password Security Policy:</span>

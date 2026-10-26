@@ -35,6 +35,10 @@ if str(engine.url).startswith("sqlite"):
             user_cols = [row[1] for row in cursor_users.fetchall()]
             if "tenant_id" not in user_cols:
                 conn.exec_driver_sql("ALTER TABLE users ADD COLUMN tenant_id VARCHAR(36)")
+            if "username" not in user_cols:
+                conn.exec_driver_sql("ALTER TABLE users ADD COLUMN username VARCHAR(100)")
+            if "full_name" not in user_cols:
+                conn.exec_driver_sql("ALTER TABLE users ADD COLUMN full_name VARCHAR(255)")
 
             # raw_sales_data table
             cursor_sales = conn.exec_driver_sql("PRAGMA table_info(raw_sales_data)")

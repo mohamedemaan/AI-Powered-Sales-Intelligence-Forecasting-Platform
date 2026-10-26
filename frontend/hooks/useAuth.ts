@@ -1,7 +1,7 @@
 'use client'
 
-import { useAuthContext, UserProfile } from '../app/providers'
+import { useAuthContext, UserProfile, RegisterData } from '../app/providers'
 
-export type { UserProfile }
+export type { UserProfile, RegisterData }
 export const useAuth = useAuthContext
 export default useAuth

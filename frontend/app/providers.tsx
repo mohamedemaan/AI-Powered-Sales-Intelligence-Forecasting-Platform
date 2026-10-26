@@ -8,16 +8,28 @@ import api from '../lib/api'
 export interface UserProfile {
   id: string
   email: string
+  username?: string | null
+  full_name?: string | null
   role: string
   is_active: boolean
   tenant_id?: string | null
 }
 
+export interface RegisterData {
+  name?: string
+  username?: string
+  email: string
+  password: string
+}
+
 interface AuthContextType {
   user: UserProfile | null
   loading: boolean
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
-  register: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
+  login: (usernameOrEmail: string, password: string) => Promise<{ success: boolean; error?: string }>
+  register: (
+    dataOrEmail: RegisterData | string,
+    passwordArg?: string
+  ) => Promise<{ success: boolean; error?: string }>
   logout: () => void
   fetchUser: () => Promise<void>
 }
@@ -103,11 +115,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }
 
-  const register = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const register = async (
+    dataOrEmail: RegisterData | string,
+    passwordArg?: string
+  ): Promise<{ success: boolean; error?: string }> => {
     try {
+      const email = typeof dataOrEmail === 'string' ? dataOrEmail : dataOrEmail.email
+      const password = typeof dataOrEmail === 'string' ? (passwordArg || '') : dataOrEmail.password
+      const name = typeof dataOrEmail === 'object' ? dataOrEmail.name : undefined
+      const username = typeof dataOrEmail === 'object' ? dataOrEmail.username : undefined
+
       await api.post('/api/v1/auth/register', {
         email,
         password,
+        username: username || email.split('@')[0],
+        full_name: name || undefined,
         role: 'ANALYST',
         is_active: true
       })

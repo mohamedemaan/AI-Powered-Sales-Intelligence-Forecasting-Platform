@@ -7,6 +7,8 @@ import re
 
 class UserBase(BaseModel):
     email: EmailStr
+    username: Optional[str] = None
+    full_name: Optional[str] = None
     is_active: bool = True
     role: UserRole = UserRole.ANALYST
     tenant_id: Optional[UUID] = None
