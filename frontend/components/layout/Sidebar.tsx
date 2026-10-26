@@ -26,6 +26,7 @@ const navItems = [
   { href: '/model-health', label: 'Model Health' },
   { href: '/gemini', label: 'Gemini AI' },
   { href: '/reports', label: 'Reports & Exports' },
+  { href: '/billing', label: 'Subscription & Plans' },
 ]
 
 export function Sidebar() {

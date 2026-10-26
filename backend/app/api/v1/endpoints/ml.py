@@ -149,6 +149,16 @@ def train_and_select_models(
     current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
     _rbac_check: Any = Depends(deps.require_analyst)
 ):
+    # Enforce Monthly Forecast Quota
+    from app.core.plans import get_plan_config, get_tenant_usage
+    plan = get_plan_config(current_tenant.subscription_tier)
+    usage = get_tenant_usage(db, current_tenant.id)
+    if usage["forecasts_month_count"] >= plan["max_forecasts_per_month"]:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Monthly forecast quota reached ({plan['max_forecasts_per_month']} max on {plan['name']}). Please upgrade your workspace subscription to generate additional forecasts."
+        )
+
     clean_sku = (sku or "").strip()
     is_all = clean_sku.upper() in ["ALL", "GLOBAL", "TOTAL", ""]
     

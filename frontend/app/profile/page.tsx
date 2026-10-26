@@ -10,6 +10,7 @@ import {
   Building,
   Key,
   LogOut,
+  CreditCard,
   CheckCircle,
   Database,
   ArrowRight,
@@ -617,6 +618,12 @@ export default function ProfilePage() {
             className="inline-flex items-center gap-1.5 text-xs bg-slate-800 text-slate-300 hover:text-white px-3 py-2 rounded-lg border border-slate-700 transition"
           >
             Audited Reports & Exports
+          </Link>
+          <Link
+            href="/billing"
+            className="inline-flex items-center gap-1.5 text-xs bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30 px-3 py-2 rounded-lg font-semibold transition"
+          >
+            <CreditCard className="w-3.5 h-3.5" /> Manage Subscription & Quotas
           </Link>
         </div>
       </div>

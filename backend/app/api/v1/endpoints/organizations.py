@@ -21,8 +21,13 @@ from app.schemas.organization import (
     InvitationVerifyResponse,
     InvitationAcceptRequest,
     MemberRoleUpdateRequest,
-    MemberActionResponse
+    MemberActionResponse,
+    PlanTierInfo,
+    SubscriptionUsage,
+    SubscriptionDetailsResponse,
+    SubscriptionUpgradeRequest
 )
+from app.core.plans import get_plan_config, get_tenant_usage, PLANS_CONFIG
 
 router = APIRouter()
 
@@ -711,6 +716,18 @@ def create_organization_invitation(
     """
     _require_workspace_admin(db, org_id, current_user.id)
 
+    # Enforce Plan Team Member Quota
+    tenant = db.query(Tenant).filter(Tenant.id == org_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organization workspace not found.")
+    plan = get_plan_config(tenant.subscription_tier)
+    usage = get_tenant_usage(db, org_id)
+    if usage["total_seats_used"] >= plan["max_members"]:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"Team seat limit reached ({plan['max_members']} max on {plan['name']}). Please upgrade your workspace plan to invite additional team members."
+        )
+
     email_clean = invite_in.email.strip().lower()
     if "@" not in email_clean or "." not in email_clean:
         raise HTTPException(status_code=400, detail="Invalid email address.")
@@ -816,3 +833,137 @@ def revoke_organization_invitation(
         status="success",
         message="Invitation has been revoked."
     )
+
+# ---------------------------------------------------------------------------
+# Workspace Subscription & Billing Management Endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/{org_id}/subscription", response_model=SubscriptionDetailsResponse)
+def get_organization_subscription(
+    org_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Returns workspace subscription details, live un-fabricated quota usage, and available upgrade tiers.
+    Requires ADMIN or OWNER privileges.
+    """
+    _require_workspace_admin(db, org_id, current_user.id)
+    tenant = db.query(Tenant).filter(Tenant.id == org_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organization workspace not found.")
+
+    tier = tenant.subscription_tier or "FREE"
+    plan = get_plan_config(tier)
+    usage = get_tenant_usage(db, org_id)
+
+    remaining_forecasts = max(0, plan["max_forecasts_per_month"] - usage["forecasts_month_count"])
+    remaining_seats = max(0, plan["max_members"] - usage["total_seats_used"])
+
+    available = [
+        PlanTierInfo(
+            tier=p["tier"],
+            name=p["name"],
+            description=p["description"],
+            price_monthly=p["price_monthly"],
+            max_members=p["max_members"],
+            max_datasets=p["max_datasets"],
+            max_forecasts_per_month=p["max_forecasts_per_month"],
+            features=p["features"]
+        )
+        for p in PLANS_CONFIG.values()
+    ]
+
+    return SubscriptionDetailsResponse(
+        tier=tier,
+        name=plan["name"],
+        status=tenant.subscription_status or "ACTIVE",
+        current_period_end=tenant.current_period_end,
+        usage=SubscriptionUsage(
+            members_count=usage["total_seats_used"],
+            members_limit=plan["max_members"],
+            datasets_count=usage["datasets_count"],
+            datasets_limit=plan["max_datasets"],
+            forecasts_count_month=usage["forecasts_month_count"],
+            forecasts_limit_month=plan["max_forecasts_per_month"],
+            remaining_forecasts=remaining_forecasts,
+            remaining_seats=remaining_seats
+        ),
+        available_plans=available,
+        development_mode_note="Development mode: Billing foundation active. In production, configure STRIPE_API_KEY for live credit card charges."
+    )
+
+@router.post("/{org_id}/subscription/upgrade", response_model=SubscriptionDetailsResponse)
+def upgrade_organization_subscription(
+    org_id: UUID,
+    upgrade_in: SubscriptionUpgradeRequest,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Upgrades the workspace subscription plan.
+    Restricted strictly to the workspace OWNER.
+    """
+    caller_mem = db.query(TenantMember).filter(
+        TenantMember.tenant_id == org_id,
+        TenantMember.user_id == current_user.id
+    ).first()
+
+    if not caller_mem:
+        raise HTTPException(status_code=403, detail="Access denied: You are not a member of this workspace.")
+
+    if caller_mem.role != TenantMemberRole.OWNER.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an organization Owner can manage subscriptions and billing."
+        )
+
+    target_tier = upgrade_in.plan_tier.strip().upper()
+    if target_tier not in PLANS_CONFIG:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid plan tier. Must be one of: {', '.join(PLANS_CONFIG.keys())}"
+        )
+
+    tenant = db.query(Tenant).filter(Tenant.id == org_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organization workspace not found.")
+
+    tenant.subscription_tier = target_tier
+    tenant.subscription_status = "ACTIVE"
+    tenant.current_period_end = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
+    db.commit()
+    db.refresh(tenant)
+
+    return get_organization_subscription(org_id=org_id, db=db, current_user=current_user)
+
+@router.post("/{org_id}/subscription/cancel", response_model=MemberActionResponse)
+def cancel_organization_subscription(
+    org_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Cancels workspace subscription at the end of the current period.
+    Restricted strictly to the workspace OWNER.
+    """
+    caller_mem = db.query(TenantMember).filter(
+        TenantMember.tenant_id == org_id,
+        TenantMember.user_id == current_user.id
+    ).first()
+
+    if not caller_mem or caller_mem.role != TenantMemberRole.OWNER.value:
+        raise HTTPException(status_code=403, detail="Only an organization Owner can cancel subscriptions.")
+
+    tenant = db.query(Tenant).filter(Tenant.id == org_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organization workspace not found.")
+
+    tenant.subscription_status = "CANCELED"
+    db.commit()
+
+    return MemberActionResponse(
+        status="success",
+        message="Subscription has been scheduled for cancellation at the end of the current billing period."
+    )
+

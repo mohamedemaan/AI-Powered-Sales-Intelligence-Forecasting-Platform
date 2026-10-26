@@ -79,4 +79,37 @@ class MemberActionResponse(BaseModel):
     status: str
     message: str
 
+class PlanTierInfo(BaseModel):
+    tier: str
+    name: str
+    description: str
+    price_monthly: int
+    max_members: int
+    max_datasets: int
+    max_forecasts_per_month: int
+    features: List[str]
+
+class SubscriptionUsage(BaseModel):
+    members_count: int
+    members_limit: int
+    datasets_count: int
+    datasets_limit: int
+    forecasts_count_month: int
+    forecasts_limit_month: int
+    remaining_forecasts: int
+    remaining_seats: int
+
+class SubscriptionDetailsResponse(BaseModel):
+    tier: str
+    name: str
+    status: str
+    current_period_end: Optional[str] = None
+    usage: SubscriptionUsage
+    available_plans: List[PlanTierInfo]
+    development_mode_note: Optional[str] = None
+
+class SubscriptionUpgradeRequest(BaseModel):
+    plan_tier: str = Field(..., description="Target plan tier: FREE, PRO, BUSINESS, ENTERPRISE")
+
+
 
