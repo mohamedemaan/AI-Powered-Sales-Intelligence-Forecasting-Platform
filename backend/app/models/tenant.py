@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, JSON, Uuid, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, JSON, Uuid, UniqueConstraint, DateTime
 from sqlalchemy.orm import relationship
 from app.db.base import BaseModel
 
@@ -9,6 +9,12 @@ class TenantMemberRole(str, enum.Enum):
     ANALYST = "ANALYST"
     VIEWER = "VIEWER"
     MEMBER = "MEMBER"
+
+class InvitationStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    EXPIRED = "EXPIRED"
+    REVOKED = "REVOKED"
 
 class Tenant(BaseModel):
     __tablename__ = "tenants"
@@ -25,6 +31,7 @@ class Tenant(BaseModel):
 
     # Relationships
     members = relationship("TenantMember", back_populates="tenant", cascade="all, delete-orphan")
+    invitations = relationship("TenantInvitation", back_populates="tenant", cascade="all, delete-orphan")
 
 
 class TenantMember(BaseModel):
@@ -41,7 +48,25 @@ class TenantMember(BaseModel):
     user = relationship("User", back_populates="memberships")
 
 
+class TenantInvitation(BaseModel):
+    __tablename__ = "tenant_invitations"
+
+    tenant_id = Column(Uuid(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    role = Column(String(50), default="MEMBER", nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    invited_by_id = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    status = Column(String(50), default="PENDING", nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    accepted_at = Column(DateTime, nullable=True)
+
+    tenant = relationship("Tenant", back_populates="invitations")
+    invited_by = relationship("User", foreign_keys=[invited_by_id])
+
+
 # Enterprise SaaS aliases
 Organization = Tenant
 OrganizationMember = TenantMember
 OrganizationMemberRole = TenantMemberRole
+OrganizationInvitation = TenantInvitation
+

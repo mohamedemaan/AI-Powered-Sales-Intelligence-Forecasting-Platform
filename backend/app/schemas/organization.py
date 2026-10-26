@@ -42,3 +42,41 @@ class OrganizationResponse(BaseModel):
 class OrganizationSwitchRequest(BaseModel):
     organization_id: UUID
 
+class InvitationCreate(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255, description="Invitee email address")
+    role: str = Field("MEMBER", description="Assigned role: ADMIN, ANALYST, VIEWER, MEMBER")
+
+class InvitationResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    email: str
+    role: str
+    status: str
+    expires_at: datetime
+    created_at: datetime
+    invited_by_name: Optional[str] = None
+    invitation_link: Optional[str] = None
+    development_mode_note: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+class InvitationVerifyResponse(BaseModel):
+    organization_name: str
+    organization_id: UUID
+    email: str
+    role: str
+    status: str
+    expires_at: datetime
+    is_valid: bool
+    message: Optional[str] = None
+
+class InvitationAcceptRequest(BaseModel):
+    token: str = Field(..., min_length=10, description="Invitation token")
+
+class MemberRoleUpdateRequest(BaseModel):
+    role: str = Field(..., description="New role: OWNER, ADMIN, ANALYST, VIEWER, MEMBER")
+
+class MemberActionResponse(BaseModel):
+    status: str
+    message: str
+
+

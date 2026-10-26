@@ -90,6 +90,14 @@ if str(engine.url).startswith("sqlite"):
                 if col_name not in fc_cols:
                     conn.exec_driver_sql(f"ALTER TABLE forecasts ADD COLUMN {col_name} {col_type}")
 
+            # tenant_invitations table
+            cursor_inv = conn.exec_driver_sql("PRAGMA table_info(tenant_invitations)")
+            inv_cols = [row[1] for row in cursor_inv.fetchall()]
+            if inv_cols:
+                for col_name, col_type in [("token_hash", "VARCHAR(64)"), ("status", "VARCHAR(50)"), ("expires_at", "DATETIME"), ("accepted_at", "DATETIME")]:
+                    if col_name not in inv_cols:
+                        conn.exec_driver_sql(f"ALTER TABLE tenant_invitations ADD COLUMN {col_name} {col_type}")
+
             # Safe zero-data-loss backfill for existing single-user data
             import uuid
             cursor_all_tenants = conn.exec_driver_sql("SELECT id FROM tenants LIMIT 1")

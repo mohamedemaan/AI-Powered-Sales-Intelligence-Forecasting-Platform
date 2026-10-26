@@ -1,21 +1,34 @@
-from typing import List, Any
-from fastapi import APIRouter, Depends, HTTPException, status
+import hashlib
+import secrets
+from datetime import datetime, timedelta
+from typing import List, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from uuid import UUID
 
 from app.api import deps
 from app.models.user import User
-from app.models.tenant import Tenant, TenantMember, TenantMemberRole
+from app.models.tenant import Tenant, TenantMember, TenantMemberRole, TenantInvitation, InvitationStatus
 from app.schemas.organization import (
     OrganizationCreate,
     OrganizationUpdate,
     OrganizationResponse,
     OrganizationMemberResponse,
-    OrganizationSwitchRequest
+    OrganizationSwitchRequest,
+    InvitationCreate,
+    InvitationResponse,
+    InvitationVerifyResponse,
+    InvitationAcceptRequest,
+    MemberRoleUpdateRequest,
+    MemberActionResponse
 )
 
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# Organization CRUD & Switch Endpoints
+# ---------------------------------------------------------------------------
 
 @router.post("", response_model=OrganizationResponse)
 def create_organization(
@@ -27,7 +40,6 @@ def create_organization(
     Creates a new company workspace/organization.
     The creator is automatically granted the OWNER role and the workspace is set as active.
     """
-    # Check if slug is requested and unique
     slug_val = org_in.slug.strip().lower() if org_in.slug else None
     if slug_val:
         existing = db.query(Tenant).filter(Tenant.slug == slug_val).first()
@@ -81,7 +93,6 @@ def list_user_organizations(
     """
     Lists all company workspaces and organizations the current authenticated user belongs to.
     """
-    # Retrieve all memberships for this user
     memberships = db.query(TenantMember).filter(TenantMember.user_id == current_user.id).all()
     
     # If user has no memberships yet, resolve/self-heal active tenant
@@ -95,9 +106,7 @@ def list_user_organizations(
         if not tenant:
             continue
         
-        # Count members in this workspace
         m_count = db.query(func.count(TenantMember.id)).filter(TenantMember.tenant_id == tenant.id).scalar() or 1
-        
         is_active = (current_user.tenant_id == tenant.id)
         org_list.append(
             OrganizationResponse(
@@ -190,6 +199,194 @@ def switch_organization(
         members_count=m_count
     )
 
+# ---------------------------------------------------------------------------
+# Global / Public Invitation Verification & Acceptance Endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/invitations/verify", response_model=InvitationVerifyResponse)
+def verify_invitation(
+    token: str = Query(..., min_length=10, description="Invitation token"),
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """
+    Verifies an invitation token.
+    Safe endpoint that can be queried before login to display workspace details.
+    """
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    invitation = db.query(TenantInvitation).filter(TenantInvitation.token_hash == token_hash).first()
+    
+    if not invitation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found or invalid token."
+        )
+    
+    tenant = db.query(Tenant).filter(Tenant.id == invitation.tenant_id).first()
+    org_name = tenant.name if tenant else "Unknown Workspace"
+
+    # Check expiration
+    now = datetime.utcnow()
+    if invitation.status == InvitationStatus.PENDING.value and invitation.expires_at < now:
+        invitation.status = InvitationStatus.EXPIRED.value
+        db.commit()
+
+    if invitation.status != InvitationStatus.PENDING.value:
+        return InvitationVerifyResponse(
+            organization_name=org_name,
+            organization_id=invitation.tenant_id,
+            email=invitation.email,
+            role=invitation.role,
+            status=invitation.status,
+            expires_at=invitation.expires_at,
+            is_valid=False,
+            message=f"This invitation has already been {invitation.status.lower()}."
+        )
+
+    return InvitationVerifyResponse(
+        organization_name=org_name,
+        organization_id=invitation.tenant_id,
+        email=invitation.email,
+        role=invitation.role,
+        status=invitation.status,
+        expires_at=invitation.expires_at,
+        is_valid=True,
+        message="Invitation is valid and pending acceptance."
+    )
+
+@router.post("/invitations/accept", response_model=OrganizationResponse)
+def accept_invitation(
+    accept_in: InvitationAcceptRequest,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Accepts an invitation using the secret single-use token.
+    Transitions status to ACCEPTED, adds user to tenant_members, and switches active context.
+    """
+    token_hash = hashlib.sha256(accept_in.token.encode("utf-8")).hexdigest()
+    invitation = db.query(TenantInvitation).filter(TenantInvitation.token_hash == token_hash).first()
+
+    if not invitation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found or invalid token."
+        )
+
+    now = datetime.utcnow()
+    if invitation.expires_at < now or invitation.status == InvitationStatus.EXPIRED.value:
+        invitation.status = InvitationStatus.EXPIRED.value
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This invitation has expired. Please request a new invitation."
+        )
+
+    if invitation.status == InvitationStatus.REVOKED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This invitation has been revoked by an administrator."
+        )
+
+    if invitation.status == InvitationStatus.ACCEPTED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This invitation has already been accepted."
+        )
+
+    tenant = db.query(Tenant).filter(Tenant.id == invitation.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organization workspace not found.")
+
+    # Check if user is already a member
+    existing_mem = db.query(TenantMember).filter(
+        TenantMember.tenant_id == tenant.id,
+        TenantMember.user_id == current_user.id
+    ).first()
+
+    if not existing_mem:
+        new_member = TenantMember(
+            tenant_id=tenant.id,
+            user_id=current_user.id,
+            role=invitation.role
+        )
+        db.add(new_member)
+        role = invitation.role
+    else:
+        role = existing_mem.role
+
+    # Mark invitation as accepted
+    invitation.status = InvitationStatus.ACCEPTED.value
+    invitation.accepted_at = now
+
+    # Switch active context to joined workspace
+    current_user.tenant_id = tenant.id
+    db.commit()
+
+    m_count = db.query(func.count(TenantMember.id)).filter(TenantMember.tenant_id == tenant.id).scalar() or 1
+
+    return OrganizationResponse(
+        id=tenant.id,
+        name=tenant.name,
+        slug=tenant.slug,
+        owner_id=tenant.owner_id,
+        subscription_tier=tenant.subscription_tier,
+        subscription_status=tenant.subscription_status,
+        created_at=tenant.created_at,
+        role=role,
+        is_active=True,
+        members_count=m_count
+    )
+
+@router.post("/invitations/reject", response_model=MemberActionResponse)
+def reject_invitation(
+    reject_in: InvitationAcceptRequest,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """
+    Declines an invitation using the token.
+    """
+    token_hash = hashlib.sha256(reject_in.token.encode("utf-8")).hexdigest()
+    invitation = db.query(TenantInvitation).filter(TenantInvitation.token_hash == token_hash).first()
+
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation not found.")
+
+    if invitation.status != InvitationStatus.PENDING.value:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot reject an invitation that is already {invitation.status.lower()}."
+        )
+
+    invitation.status = InvitationStatus.REVOKED.value
+    db.commit()
+
+    return MemberActionResponse(
+        status="success",
+        message="Invitation has been declined."
+    )
+
+# ---------------------------------------------------------------------------
+# Workspace Team & Invitation Management Endpoints (Scoped by Organization)
+# ---------------------------------------------------------------------------
+
+def _require_workspace_admin(db: Session, tenant_id: UUID, user_id: UUID) -> TenantMember:
+    """Helper to verify that caller has OWNER or ADMIN rights in the given workspace."""
+    member = db.query(TenantMember).filter(
+        TenantMember.tenant_id == tenant_id,
+        TenantMember.user_id == user_id
+    ).first()
+    if not member:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: You are not a member of this workspace."
+        )
+    if member.role not in [TenantMemberRole.OWNER.value, TenantMemberRole.ADMIN.value]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Administrator privileges required for this action."
+        )
+    return member
+
 @router.get("/{org_id}/members", response_model=List[OrganizationMemberResponse])
 def list_organization_members(
     org_id: UUID,
@@ -197,7 +394,7 @@ def list_organization_members(
     current_user: User = Depends(deps.get_current_user),
 ) -> Any:
     """
-    Lists members of a workspace. The user must be a member of the workspace to view other members.
+    Lists members of a workspace. The user must be a member of the workspace to view members.
     """
     user_mem = db.query(TenantMember).filter(
         TenantMember.tenant_id == org_id,
@@ -228,3 +425,288 @@ def list_organization_members(
         )
     return results
 
+@router.patch("/{org_id}/members/{user_id}", response_model=OrganizationMemberResponse)
+def update_member_role(
+    org_id: UUID,
+    user_id: UUID,
+    role_in: MemberRoleUpdateRequest,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Updates the role of a workspace member.
+    Enforces that only OWNERs can promote/demote other OWNERs,
+    and prevents demoting the last organization OWNER.
+    """
+    caller_mem = _require_workspace_admin(db, org_id, current_user.id)
+    
+    target_mem = db.query(TenantMember).filter(
+        TenantMember.tenant_id == org_id,
+        TenantMember.user_id == user_id
+    ).first()
+    if not target_mem:
+        raise HTTPException(status_code=404, detail="Workspace member not found.")
+
+    new_role = role_in.role.strip().upper()
+    valid_roles = [r.value for r in TenantMemberRole]
+    if new_role not in valid_roles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role. Must be one of: {', '.join(valid_roles)}"
+        )
+
+    # Only an OWNER can assign or remove OWNER role
+    if (target_mem.role == TenantMemberRole.OWNER.value or new_role == TenantMemberRole.OWNER.value) and caller_mem.role != TenantMemberRole.OWNER.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an organization Owner can manage Owner roles."
+        )
+
+    # Protect against demoting the last owner
+    if target_mem.role == TenantMemberRole.OWNER.value and new_role != TenantMemberRole.OWNER.value:
+        owners_count = db.query(func.count(TenantMember.id)).filter(
+            TenantMember.tenant_id == org_id,
+            TenantMember.role == TenantMemberRole.OWNER.value
+        ).scalar()
+        if owners_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot demote the last organization owner. Transfer ownership first."
+            )
+
+    target_mem.role = new_role
+    db.commit()
+    db.refresh(target_mem)
+
+    u = db.query(User).filter(User.id == target_mem.user_id).first()
+    return OrganizationMemberResponse(
+        id=target_mem.id,
+        tenant_id=target_mem.tenant_id,
+        user_id=target_mem.user_id,
+        role=target_mem.role,
+        email=u.email if u else None,
+        username=u.username if u else None,
+        full_name=u.full_name if u else None,
+        created_at=target_mem.created_at
+    )
+
+@router.delete("/{org_id}/members/{user_id}", response_model=MemberActionResponse)
+def remove_organization_member(
+    org_id: UUID,
+    user_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Removes a member from the workspace.
+    Guards against removing the last organization owner.
+    """
+    caller_mem = _require_workspace_admin(db, org_id, current_user.id)
+
+    target_mem = db.query(TenantMember).filter(
+        TenantMember.tenant_id == org_id,
+        TenantMember.user_id == user_id
+    ).first()
+    if not target_mem:
+        raise HTTPException(status_code=404, detail="Workspace member not found.")
+
+    # Admins cannot remove Owners
+    if target_mem.role == TenantMemberRole.OWNER.value and caller_mem.role != TenantMemberRole.OWNER.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an organization Owner can remove an Owner."
+        )
+
+    # Prevent accidental removal of the last organization owner
+    if target_mem.role == TenantMemberRole.OWNER.value:
+        owners_count = db.query(func.count(TenantMember.id)).filter(
+            TenantMember.tenant_id == org_id,
+            TenantMember.role == TenantMemberRole.OWNER.value
+        ).scalar()
+        if owners_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot remove the last organization owner. Please appoint another owner first."
+            )
+
+    db.delete(target_mem)
+
+    # If the removed member is currently active in this workspace, self-heal active workspace
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if target_user and target_user.tenant_id == org_id:
+        # Find any other membership or reset to null
+        other_mem = db.query(TenantMember).filter(TenantMember.user_id == user_id).first()
+        target_user.tenant_id = other_mem.tenant_id if other_mem else None
+
+    db.commit()
+
+    return MemberActionResponse(
+        status="success",
+        message="Member successfully removed from the workspace."
+    )
+
+@router.get("/{org_id}/invitations", response_model=List[InvitationResponse])
+def list_organization_invitations(
+    org_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Lists all pending and historical invitations for a workspace.
+    Requires OWNER or ADMIN privileges.
+    """
+    _require_workspace_admin(db, org_id, current_user.id)
+
+    now = datetime.utcnow()
+    # Auto-expire overdue pending invitations
+    db.query(TenantInvitation).filter(
+        TenantInvitation.tenant_id == org_id,
+        TenantInvitation.status == InvitationStatus.PENDING.value,
+        TenantInvitation.expires_at < now
+    ).update({"status": InvitationStatus.EXPIRED.value}, synchronize_session=False)
+    db.commit()
+
+    invitations = db.query(TenantInvitation).filter(
+        TenantInvitation.tenant_id == org_id
+    ).order_by(TenantInvitation.created_at.desc()).all()
+
+    results = []
+    for inv in invitations:
+        inviter = db.query(User).filter(User.id == inv.invited_by_id).first() if inv.invited_by_id else None
+        inviter_name = (inviter.full_name or inviter.username) if inviter else None
+        results.append(
+            InvitationResponse(
+                id=inv.id,
+                tenant_id=inv.tenant_id,
+                email=inv.email,
+                role=inv.role,
+                status=inv.status,
+                expires_at=inv.expires_at,
+                created_at=inv.created_at,
+                invited_by_name=inviter_name,
+                invitation_link=None,
+                development_mode_note=None
+            )
+        )
+    return results
+
+@router.post("/{org_id}/invitations", response_model=InvitationResponse)
+def create_organization_invitation(
+    org_id: UUID,
+    invite_in: InvitationCreate,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Invites a team member by email.
+    Generates a secure, expiring, single-use token.
+    Stores only the SHA-256 hash in the database.
+    Provides a safe development-mode invitation link.
+    """
+    _require_workspace_admin(db, org_id, current_user.id)
+
+    email_clean = invite_in.email.strip().lower()
+    if "@" not in email_clean or "." not in email_clean:
+        raise HTTPException(status_code=400, detail="Invalid email address.")
+
+    role_clean = invite_in.role.strip().upper()
+    valid_roles = [r.value for r in TenantMemberRole if r != TenantMemberRole.OWNER]
+    if role_clean not in valid_roles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid invite role. Must be one of: {', '.join(valid_roles)}"
+        )
+
+    # 1. Prevent inviting an existing active member
+    existing_user = db.query(User).filter(func.lower(User.email) == email_clean).first()
+    if existing_user:
+        existing_mem = db.query(TenantMember).filter(
+            TenantMember.tenant_id == org_id,
+            TenantMember.user_id == existing_user.id
+        ).first()
+        if existing_mem:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"User '{email_clean}' is already an active member of this workspace."
+            )
+
+    # 2. Prevent duplicate active pending invitation
+    now = datetime.utcnow()
+    active_inv = db.query(TenantInvitation).filter(
+        TenantInvitation.tenant_id == org_id,
+        func.lower(TenantInvitation.email) == email_clean,
+        TenantInvitation.status == InvitationStatus.PENDING.value,
+        TenantInvitation.expires_at > now
+    ).first()
+    if active_inv:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"An active invitation is already pending for '{email_clean}'."
+        )
+
+    # 3. Generate secure single-use token and store hash
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    expires_at = now + timedelta(days=7)
+
+    invitation = TenantInvitation(
+        tenant_id=org_id,
+        email=email_clean,
+        role=role_clean,
+        token_hash=token_hash,
+        invited_by_id=current_user.id,
+        status=InvitationStatus.PENDING.value,
+        expires_at=expires_at
+    )
+    db.add(invitation)
+    db.commit()
+    db.refresh(invitation)
+
+    invitation_link = f"/invite/accept?token={raw_token}"
+    dev_note = "Development mode: External email delivery is disabled. Share this link directly with the invitee."
+
+    return InvitationResponse(
+        id=invitation.id,
+        tenant_id=invitation.tenant_id,
+        email=invitation.email,
+        role=invitation.role,
+        status=invitation.status,
+        expires_at=invitation.expires_at,
+        created_at=invitation.created_at,
+        invited_by_name=current_user.full_name or current_user.username,
+        invitation_link=invitation_link,
+        development_mode_note=dev_note
+    )
+
+@router.delete("/{org_id}/invitations/{invitation_id}", response_model=MemberActionResponse)
+def revoke_organization_invitation(
+    org_id: UUID,
+    invitation_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Revokes / cancels a pending workspace invitation.
+    """
+    _require_workspace_admin(db, org_id, current_user.id)
+
+    invitation = db.query(TenantInvitation).filter(
+        TenantInvitation.id == invitation_id,
+        TenantInvitation.tenant_id == org_id
+    ).first()
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation not found.")
+
+    if invitation.status != InvitationStatus.PENDING.value:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot revoke invitation with status '{invitation.status}'."
+        )
+
+    invitation.status = InvitationStatus.REVOKED.value
+    db.commit()
+
+    return MemberActionResponse(
+        status="success",
+        message="Invitation has been revoked."
+    )
