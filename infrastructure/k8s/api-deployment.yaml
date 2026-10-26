@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: salesintel-api-gateway
+  namespace: production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: salesintel-api
+  template:
+    metadata:
+      labels:
+        app: salesintel-api
+    spec:
+      containers:
+      - name: api
+        image: salesintel/api:latest
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - secretRef:
+            name: salesintel-secrets
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: salesintel-api-hpa
+  namespace: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: salesintel-api-gateway
+  minReplicas: 3
+  maxReplicas: 50
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

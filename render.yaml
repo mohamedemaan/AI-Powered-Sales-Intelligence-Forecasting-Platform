@@ -1,0 +1,45 @@
+services:
+  # Backend API
+  - type: web
+    name: sales-intel-backend
+    env: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sales-intel-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: USE_SQLITE
+        value: "false"
+      - key: CORS_ORIGINS
+        value: "*"
+
+  # Frontend Next.js Dashboard
+  - type: web
+    name: sales-intel-frontend
+    env: node
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: sales-intel-backend
+          property: host
+
+databases:
+  - name: sales-intel-db
+    plan: free
+    region: oregon
+    databaseName: sales_intel
+    user: postgres
+

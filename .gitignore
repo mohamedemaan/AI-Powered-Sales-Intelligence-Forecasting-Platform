@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+.pytest_cache/
+
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+sql_app.db
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.vercel/
+
+# Uploads
+uploads/
+
+# IDE & AI tooling
+.vscode/
+.idea/
+.claude/
+.agents/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+powershell.cmd
+
+
+# Docker
+*.log
+

@@ -1,0 +1,49 @@
+name: Production CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        pip install -r requirements.txt pytest
+        
+    - name: Run Tests
+      run: |
+        cd backend
+        pytest tests/
+        
+    - name: Build Docker Images
+      run: |
+        docker build -t sales-intel-backend ./backend
+        docker build -t sales-intel-frontend ./frontend
+        docker build -t sales-intel-worker -f ./backend/Dockerfile.worker ./backend
+
+  deploy-production:
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+    - name: Deploy to Server
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_IP }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          cd /opt/sales-intel
+          git pull origin main
+          docker-compose -f docker-compose.yml down
+          docker-compose -f docker-compose.yml up -d --build
