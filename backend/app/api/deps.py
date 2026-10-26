@@ -187,3 +187,77 @@ def get_current_tenant_or_default(
         db.commit()
         db.refresh(tenant)
     return tenant
+
+
+# ---------------------------------------------------------------------------
+# Centralized Role-Based Access Control (RBAC) Dependencies
+# ---------------------------------------------------------------------------
+
+class RequireRole:
+    """
+    Centralized RBAC Dependency Factory.
+    Verifies that the authenticated caller has one of the required roles in the active tenant.
+    Protects against cross-tenant IDOR by strictly enforcing workspace boundaries.
+    """
+    def __init__(self, allowed_roles: list):
+        self.allowed_roles = [r.value if hasattr(r, "value") else str(r) for r in allowed_roles]
+
+    def __call__(
+        self,
+        authorization: Optional[str] = Header(None, alias="Authorization"),
+        x_organization_id: Optional[str] = Header(None, alias="X-Organization-ID"),
+        db: Session = Depends(get_db)
+    ) -> Optional[TenantMember]:
+        if authorization and authorization.lower().startswith("bearer "):
+            token = authorization.split(" ")[1]
+            try:
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+                token_data = TokenPayload(**payload)
+                user = db.query(User).filter(User.id == UUID(token_data.sub)).first()
+            except Exception:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Could not validate credentials."
+                )
+            if not user or not user.is_active:
+                raise HTTPException(status_code=403, detail="Inactive or non-existent user.")
+
+            # Resolves active tenant and verifies explicit membership (blocks cross-tenant access)
+            tenant = get_current_tenant(
+                x_organization_id=x_organization_id,
+                current_user=user,
+                db=db
+            )
+
+            member = db.query(TenantMember).filter(
+                TenantMember.tenant_id == tenant.id,
+                TenantMember.user_id == user.id
+            ).first()
+
+            if not member:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: You are not a member of this workspace."
+                )
+
+            if member.role not in self.allowed_roles:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Permission denied: Action requires one of {self.allowed_roles} roles. Your current role is '{member.role}'."
+                )
+            return member
+
+        return None
+
+
+require_owner = RequireRole([TenantMemberRole.OWNER.value])
+require_admin = RequireRole([TenantMemberRole.OWNER.value, TenantMemberRole.ADMIN.value])
+require_analyst = RequireRole([TenantMemberRole.OWNER.value, TenantMemberRole.ADMIN.value, TenantMemberRole.ANALYST.value])
+require_viewer = RequireRole([
+    TenantMemberRole.OWNER.value,
+    TenantMemberRole.ADMIN.value,
+    TenantMemberRole.ANALYST.value,
+    TenantMemberRole.VIEWER.value,
+    TenantMemberRole.MEMBER.value
+])
+

@@ -146,7 +146,8 @@ def train_and_select_models(
     sku: str = "ALL",
     forecast_days: int = 7,
     db: Session = Depends(get_db),
-    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_analyst)
 ):
     clean_sku = (sku or "").strip()
     is_all = clean_sku.upper() in ["ALL", "GLOBAL", "TOTAL", ""]
@@ -282,7 +283,8 @@ def analyze_and_forecast_sales(
     end_date: Optional[str] = None,
     model_preference: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_viewer)
 ):
     """
     Unified date-based sales analysis & forecasting workflow.

@@ -23,7 +23,8 @@ async def upload_data(
     file: UploadFile = File(...),
     replace: bool = Query(True, description="Whether to replace previous sales records or append"),
     db: Session = Depends(deps.get_db),
-    current_tenant: Any = Depends(deps.get_current_tenant_or_default)
+    current_tenant: Any = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_analyst)
 ):
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
@@ -52,7 +53,8 @@ async def upload_data(
 @router.post("/clean-duplicates")
 def deduplicate_sales_data(
     db: Session = Depends(deps.get_db),
-    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_analyst)
 ):
     """
     Scans raw_sales_data for the active organization workspace and removes duplicate rows.
@@ -115,7 +117,8 @@ def deduplicate_sales_data(
 @router.post("/reset")
 def reset_sales_data(
     db: Session = Depends(deps.get_db),
-    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_admin)
 ):
     """
     Clears raw sales data, forecasts, and model runs for the active organization workspace only.
@@ -134,7 +137,8 @@ def reset_sales_data(
 @router.get("/status")
 def get_status(
     db: Session = Depends(deps.get_db),
-    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_viewer)
 ):
     count = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id).count()
     min_date = db.query(func.min(RawSalesData.date)).filter(RawSalesData.tenant_id == current_tenant.id).scalar()
@@ -152,7 +156,8 @@ def get_status(
 def get_dataset_preview(
     limit: int = Query(10, ge=1, le=50),
     db: Session = Depends(deps.get_db),
-    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_viewer)
 ):
     """
     Returns comprehensive dataset inspection scoped to the active workspace.

@@ -22,6 +22,7 @@ import {
   AlertCircle,
   Clock,
   ShieldAlert,
+  ShieldCheck,
   Loader2,
   Check
 } from 'lucide-react'
@@ -617,6 +618,58 @@ export default function ProfilePage() {
           >
             Audited Reports & Exports
           </Link>
+        </div>
+      </div>
+
+      {/* Roles & Permissions Matrix (RBAC) */}
+      <div className="bg-surface p-6 rounded-xl border border-slate-700 shadow-sm space-y-4">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-emerald-400" />
+          <h3 className="text-base font-semibold text-white">Roles & Permissions Matrix</h3>
+        </div>
+        <p className="text-xs text-slate-300">
+          Centralized Role-Based Access Control (RBAC) securely governs platform capabilities across your organization:
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-white">Owner</span>
+              <span className="text-[10px] font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded font-semibold">FULL ACCESS</span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Full organization control, workspace metadata settings, member role administration, billing configuration, and permanent workspace deletion.
+            </p>
+          </div>
+
+          <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-white">Admin</span>
+              <span className="text-[10px] font-mono bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded font-semibold">ADMINISTRATION</span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Invite and remove team members, update workspace metadata, manage datasets and deduplication, and audit telemetry. Cannot delete workspace or remove Owner.
+            </p>
+          </div>
+
+          <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-white">Analyst</span>
+              <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded font-semibold">DATA & ML</span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Upload datasets, execute ETL processing, trigger machine learning model training, run forecasts, and download audited reports. Cannot manage team members.
+            </p>
+          </div>
+
+          <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-white">Viewer</span>
+              <span className="text-[10px] font-mono bg-slate-700/50 text-slate-300 border border-slate-600 px-2 py-0.5 rounded font-semibold">READ-ONLY</span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Read-only view of dashboards, sales trends, inventory telemetry, and generated forecast charts. Strictly prevented from uploading data or modifying settings.
+            </p>
+          </div>
         </div>
       </div>
 

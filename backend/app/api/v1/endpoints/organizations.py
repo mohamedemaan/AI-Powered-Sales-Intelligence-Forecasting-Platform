@@ -199,6 +199,112 @@ def switch_organization(
         members_count=m_count
     )
 
+@router.patch("/{org_id}", response_model=OrganizationResponse)
+def update_organization(
+    org_id: UUID,
+    org_in: OrganizationUpdate,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Updates workspace metadata (name, slug, metadata).
+    Requires OWNER or ADMIN privileges.
+    """
+    caller_mem = _require_workspace_admin(db, org_id, current_user.id)
+    tenant = db.query(Tenant).filter(Tenant.id == org_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organization workspace not found.")
+
+    if org_in.name and org_in.name.strip():
+        tenant.name = org_in.name.strip()
+
+    if org_in.slug is not None:
+        slug_val = org_in.slug.strip().lower() if org_in.slug.strip() else None
+        if slug_val and slug_val != tenant.slug:
+            existing = db.query(Tenant).filter(Tenant.slug == slug_val).first()
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Workspace identifier '{slug_val}' is already taken."
+                )
+        tenant.slug = slug_val
+
+    if org_in.metadata_json is not None:
+        tenant.metadata_json = org_in.metadata_json
+
+    db.commit()
+    db.refresh(tenant)
+
+    m_count = db.query(func.count(TenantMember.id)).filter(TenantMember.tenant_id == tenant.id).scalar() or 1
+    is_active = (current_user.tenant_id == tenant.id)
+
+    return OrganizationResponse(
+        id=tenant.id,
+        name=tenant.name,
+        slug=tenant.slug,
+        owner_id=tenant.owner_id,
+        subscription_tier=tenant.subscription_tier,
+        subscription_status=tenant.subscription_status,
+        created_at=tenant.created_at,
+        role=caller_mem.role,
+        is_active=is_active,
+        members_count=m_count
+    )
+
+@router.delete("/{org_id}", response_model=MemberActionResponse)
+def delete_organization(
+    org_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Deletes an organization workspace.
+    Strictly restricted to the workspace OWNER.
+    """
+    caller_mem = db.query(TenantMember).filter(
+        TenantMember.tenant_id == org_id,
+        TenantMember.user_id == current_user.id
+    ).first()
+
+    if not caller_mem:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: You are not a member of this workspace."
+        )
+
+    if caller_mem.role != TenantMemberRole.OWNER.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an organization Owner can delete this workspace."
+        )
+
+    tenant = db.query(Tenant).filter(Tenant.id == org_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organization workspace not found.")
+
+    from app.models.data import RawSalesData
+    from app.models.forecast import ModelRun, Forecast
+    # Cascade cleanup
+    db.query(RawSalesData).filter(RawSalesData.tenant_id == org_id).delete()
+    db.query(ModelRun).filter(ModelRun.tenant_id == org_id).delete()
+    db.query(Forecast).filter(Forecast.tenant_id == org_id).delete()
+    db.delete(tenant)
+
+    if current_user.tenant_id == org_id:
+        other_mem = db.query(TenantMember).filter(
+            TenantMember.user_id == current_user.id,
+            TenantMember.tenant_id != org_id
+        ).first()
+        current_user.tenant_id = other_mem.tenant_id if other_mem else None
+
+    db.commit()
+
+    return MemberActionResponse(
+        status="success",
+        message=f"Workspace '{tenant.name}' has been permanently deleted."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Global / Public Invitation Verification & Acceptance Endpoints
 # ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
+import { useAuth } from '../../hooks/useAuth'
 import api from '../../lib/api'
 import {
   UploadCloud,
@@ -20,6 +21,9 @@ import {
 
 export default function DataManagementPage() {
   const queryClient = useQueryClient()
+  const { activeOrg } = useAuth()
+  const isViewer = activeOrg?.role === 'VIEWER' || activeOrg?.role === 'MEMBER'
+  const isOwnerOrAdmin = activeOrg?.role === 'OWNER' || activeOrg?.role === 'ADMIN'
 
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -191,6 +195,16 @@ export default function DataManagementPage() {
         </p>
       </header>
 
+      {/* RBAC Viewer Warning Banner */}
+      {isViewer && (
+        <div className="p-4 bg-amber-950/40 border border-amber-800/60 rounded-xl text-xs text-amber-300 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>
+            <strong>View-Only Workspace Access ({activeOrg?.role}):</strong> You have read-only permissions for this workspace. Uploading datasets, deduplication, and resetting data require an Analyst, Admin, or Owner role.
+          </span>
+        </div>
+      )}
+
       {/* Dataset Status Banner */}
       <div className="bg-surface p-6 rounded-xl border border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
         <div>
@@ -210,17 +224,17 @@ export default function DataManagementPage() {
           </button>
           <button
             onClick={handleDeduplicate}
-            disabled={deduplicating || !statusData || statusData.total_raw_records === 0}
+            disabled={deduplicating || !statusData || statusData.total_raw_records === 0 || isViewer}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-lg hover:bg-amber-500/30 transition disabled:opacity-50"
-            title="Clean duplicate records created by repeated uploads"
+            title={isViewer ? "Deduplication disabled for View-only role" : "Clean duplicate records created by repeated uploads"}
           >
             {deduplicating ? 'Cleaning...' : 'Deduplicate'}
           </button>
           <button
             onClick={handleReset}
-            disabled={resetting || !statusData || statusData.total_raw_records === 0}
+            disabled={resetting || !statusData || statusData.total_raw_records === 0 || !isOwnerOrAdmin}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-danger/20 text-danger border border-danger/40 rounded-lg hover:bg-danger/30 transition disabled:opacity-50"
-            title="Wipe database to return to initial empty state"
+            title={!isOwnerOrAdmin ? "Clear data restricted to Owner or Admin" : "Wipe database to return to initial empty state"}
           >
             <Trash2 className="w-3.5 h-3.5" /> {resetting ? 'Clearing...' : 'Clear All Data'}
           </button>
@@ -315,8 +329,9 @@ export default function DataManagementPage() {
           <div className="flex justify-end">
             <button
               type="submit"
-              disabled={uploading || !file}
+              disabled={uploading || !file || isViewer}
               className="bg-primary text-white text-xs px-5 py-2 rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50 transition"
+              title={isViewer ? "Uploading disabled for View-only role" : undefined}
             >
               {uploading ? 'Processing Dataset...' : 'Upload & Ingest'}
             </button>
