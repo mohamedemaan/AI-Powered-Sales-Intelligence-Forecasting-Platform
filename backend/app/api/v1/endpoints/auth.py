@@ -55,6 +55,8 @@ def register(
                 detail="This username is already taken. Please choose another.",
             )
     
+    from app.models.tenant import Tenant, TenantMember, TenantMemberRole
+
     hashed_password = security.get_password_hash(user_in.password)
     db_user = User(
         email=user_in.email,
@@ -66,6 +68,36 @@ def register(
         tenant_id=user_in.tenant_id
     )
     db.add(db_user)
+    db.flush()
+
+    if user_in.tenant_id:
+        # User joined an existing organization
+        member = TenantMember(
+            tenant_id=user_in.tenant_id,
+            user_id=db_user.id,
+            role=TenantMemberRole.MEMBER.value
+        )
+        db.add(member)
+    else:
+        # Create an initial company workspace for this user
+        workspace_name = f"{(user_in.full_name or user_in.username or 'SalesMind')}'s Workspace"
+        new_tenant = Tenant(
+            name=workspace_name,
+            owner_id=db_user.id,
+            subscription_tier="FREE",
+            subscription_status="ACTIVE"
+        )
+        db.add(new_tenant)
+        db.flush()
+        
+        member = TenantMember(
+            tenant_id=new_tenant.id,
+            user_id=db_user.id,
+            role=TenantMemberRole.OWNER.value
+        )
+        db.add(member)
+        db_user.tenant_id = new_tenant.id
+
     db.commit()
     db.refresh(db_user)
     return db_user

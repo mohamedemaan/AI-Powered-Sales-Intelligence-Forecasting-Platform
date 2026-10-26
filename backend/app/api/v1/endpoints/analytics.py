@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, Query, Response, Body
 from sqlalchemy.orm import Session
 from typing import Optional
+from app.api import deps
 from app.api.deps import get_db
+from app.models.tenant import Tenant
 from app.services.reporting_service import generate_professional_sales_report
 from app.services.analytics_service import (
     get_overview_data,
@@ -19,7 +21,8 @@ def get_overview(
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD for custom period"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD for custom period"),
     sku: Optional[str] = Query(None, description="Target SKU or product name filter"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
 ):
     """
     Returns high-level business intelligence KPIs, period-over-period growth,
@@ -30,7 +33,8 @@ def get_overview(
         period=period,
         start_date=start_date,
         end_date=end_date,
-        sku=sku
+        sku=sku,
+        tenant_id=current_tenant.id
     )
 
 @router.get("/trends")
@@ -40,7 +44,8 @@ def get_trends(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     sku: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
 ):
     """
     Time-series trend analysis providing revenue, volume, and period-over-period delta.
@@ -51,7 +56,8 @@ def get_trends(
         period=period,
         start_date=start_date,
         end_date=end_date,
-        sku=sku
+        sku=sku,
+        tenant_id=current_tenant.id
     )
 
 @router.get("/categories")
@@ -59,7 +65,8 @@ def get_categories(
     period: Optional[str] = Query("all", description="Date window: all, today, 7d, 30d, this_month, last_month, custom"),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
 ):
     """
     Category and sub-category performance, contribution percentages, and margins.
@@ -68,7 +75,8 @@ def get_categories(
         db=db,
         period=period,
         start_date=start_date,
-        end_date=end_date
+        end_date=end_date,
+        tenant_id=current_tenant.id
     )
 
 @router.get("/products")
@@ -78,7 +86,8 @@ def get_products_analytics(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
 ):
     """
     Product performance analytics: top-selling and lowest-selling products with contribution %.
@@ -89,7 +98,8 @@ def get_products_analytics(
         period=period,
         start_date=start_date,
         end_date=end_date,
-        search=search
+        search=search,
+        tenant_id=current_tenant.id
     )
 
 @router.get("/transactions")
@@ -104,7 +114,8 @@ def get_transactions(
     end_date: Optional[str] = Query(None),
     sort_by: str = Query("date"),
     sort_dir: str = Query("desc"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
 ):
     """
     Searchable, sortable, paginated transaction explorer for line-item sales records.
@@ -120,11 +131,16 @@ def get_transactions(
         start_date=start_date,
         end_date=end_date,
         sort_by=sort_by,
-        sort_dir=sort_dir
+        sort_dir=sort_dir,
+        tenant_id=current_tenant.id
     )
 
 @router.get("/forecast")
-def get_forecast(sku: str = None, db: Session = Depends(get_db)):
+def get_forecast(
+    sku: str = None,
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+):
     from app.models.data import RawSalesData
     import pandas as pd
     
@@ -134,13 +150,13 @@ def get_forecast(sku: str = None, db: Session = Depends(get_db)):
         clean_sku = (sku or "").strip()
         is_all = clean_sku.upper() in ["ALL", "GLOBAL", "TOTAL", ""]
         if is_all:
-            df = extract_for_features(db, None)
+            df = extract_for_features(db, None, tenant_id=current_tenant.id)
             if not df.empty:
                 df['date'] = pd.to_datetime(df['date'])
                 df = df.groupby('date', as_index=False).agg({'units_sold': 'sum'})
                 df = df.sort_values('date').reset_index(drop=True)
         else:
-            df = extract_for_features(db, clean_sku)
+            df = extract_for_features(db, clean_sku, tenant_id=current_tenant.id)
             if not df.empty:
                 df['date'] = pd.to_datetime(df['date'])
                 df = df.sort_values('date').reset_index(drop=True)
@@ -192,7 +208,11 @@ def get_forecast(sku: str = None, db: Session = Depends(get_db)):
     return results
 
 @router.get("/anomalies")
-def get_anomalies(sku: str = None, db: Session = Depends(get_db)):
+def get_anomalies(
+    sku: str = None,
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+):
     from app.pipelines.etl import extract_for_features
     from app.ml.anomaly import detect_anomalies
     import pandas as pd
@@ -201,13 +221,13 @@ def get_anomalies(sku: str = None, db: Session = Depends(get_db)):
         clean_sku = (sku or "").strip()
         is_all = clean_sku.upper() in ["ALL", "GLOBAL", "TOTAL", ""]
         if is_all:
-            df = extract_for_features(db, None)
+            df = extract_for_features(db, None, tenant_id=current_tenant.id)
             if not df.empty:
                 df['date'] = pd.to_datetime(df['date'])
                 df = df.groupby('date', as_index=False).agg({'units_sold': 'sum'})
                 df = df.sort_values('date').reset_index(drop=True)
         else:
-            df = extract_for_features(db, clean_sku)
+            df = extract_for_features(db, clean_sku, tenant_id=current_tenant.id)
             if not df.empty:
                 df['date'] = pd.to_datetime(df['date'])
                 df = df.sort_values('date').reset_index(drop=True)
@@ -250,7 +270,14 @@ def get_anomalies(sku: str = None, db: Session = Depends(get_db)):
         return []
 
 @router.post("/simulate")
-def run_simulation(sku: str = None, price_change: float = 0, discount: float = 0, demand_mult: float = 1.0, db: Session = Depends(get_db)):
+def run_simulation(
+    sku: str = None,
+    price_change: float = 0,
+    discount: float = 0,
+    demand_mult: float = 1.0,
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+):
     from app.pipelines.etl import extract_for_features
     from app.services.simulation import simulate_scenario
     import pandas as pd
@@ -259,7 +286,7 @@ def run_simulation(sku: str = None, price_change: float = 0, discount: float = 0
         clean_sku = (sku or "").strip()
         is_all = clean_sku.upper() in ["ALL", "GLOBAL", "TOTAL", ""]
         if is_all:
-            df = extract_for_features(db, None)
+            df = extract_for_features(db, None, tenant_id=current_tenant.id)
             if not df.empty:
                 df['date'] = pd.to_datetime(df['date'])
                 df = df.groupby('date', as_index=False).agg({
@@ -270,7 +297,7 @@ def run_simulation(sku: str = None, price_change: float = 0, discount: float = 0
                 })
                 df = df.sort_values('date').reset_index(drop=True)
         else:
-            df = extract_for_features(db, clean_sku)
+            df = extract_for_features(db, clean_sku, tenant_id=current_tenant.id)
             if not df.empty:
                 df['date'] = pd.to_datetime(df['date'])
                 df = df.sort_values('date').reset_index(drop=True)
@@ -303,7 +330,10 @@ def ask_gemini(query: str = None, payload: dict = Body(None), sku: str = None, d
     return query_sales_gemini(query=actual_query, db=db, sku=sku)
 
 @router.get("/inventory")
-def get_inventory_intelligence(db: Session = Depends(get_db)):
+def get_inventory_intelligence(
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+):
     """
     Inventory risk analysis and demand-stock ratio computation for SKUs.
     Grounds calculations strictly in empirical data without synthesizing fake inventory.
@@ -312,13 +342,16 @@ def get_inventory_intelligence(db: Session = Depends(get_db)):
     from sqlalchemy import func
     
     try:
-        skus = [r[0] for r in db.query(RawSalesData.sku).distinct().all()]
+        skus = [r[0] for r in db.query(RawSalesData.sku).filter(RawSalesData.tenant_id == current_tenant.id).distinct().all()]
         if not skus:
             return []
         
         results = []
         for sku_id in skus[:15]:
-            rows = db.query(RawSalesData).filter(RawSalesData.sku == sku_id).order_by(RawSalesData.date.desc()).limit(30).all()
+            rows = db.query(RawSalesData).filter(
+                RawSalesData.sku == sku_id,
+                RawSalesData.tenant_id == current_tenant.id
+            ).order_by(RawSalesData.date.desc()).limit(30).all()
             if not rows:
                 continue
             
@@ -375,7 +408,10 @@ def get_inventory_intelligence(db: Session = Depends(get_db)):
 
 @router.get("/model-health")
 @router.get("/model-health/latest")
-def get_model_health(db: Session = Depends(get_db)):
+def get_model_health(
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+):
     """
     Returns automated forecasting accuracy, drift signals, and validation statistics.
     Grounds metrics dynamically in recorded ModelRun entries without placeholder constants.
@@ -383,8 +419,11 @@ def get_model_health(db: Session = Depends(get_db)):
     from app.models.forecast import ModelRun
     from app.models.data import RawSalesData
     
-    total_records = db.query(RawSalesData).count()
-    last_runs = db.query(ModelRun).order_by(ModelRun.created_at.desc()).limit(10).all()
+    if not hasattr(current_tenant, "id"):
+        current_tenant = deps.get_current_tenant_or_default(db=db)
+
+    total_records = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id).count()
+    last_runs = db.query(ModelRun).filter(ModelRun.tenant_id == current_tenant.id).order_by(ModelRun.created_at.desc()).limit(10).all()
     
     runs_data = []
     avg_wape = None
@@ -487,10 +526,11 @@ def get_professional_sales_report(
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD for date range"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD for date range"),
     payload: Optional[dict] = Body(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
 ):
     """
-    Generates a professional data-driven Sales Summary Report.
+    Generates a professional data-driven Sales Summary Report scoped to the active workspace.
     Calculates Category & Sub-Category breakdowns with Total Orders, Units Sold,
     Total Sales, Profit, and Profit Margins.
     """
@@ -506,7 +546,8 @@ def get_professional_sales_report(
         mode=p_mode,
         selected_date=p_selected,
         start_date=p_start,
-        end_date=p_end
+        end_date=p_end,
+        tenant_id=current_tenant.id
     )
 
 @router.get("/report/csv")
@@ -517,7 +558,8 @@ def download_professional_sales_report_csv(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     type: Optional[str] = Query("detail", description="'detail' or 'summary'"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
 ):
     """
     Direct streaming HTTP download for the professional sales summary CSV report.
@@ -530,7 +572,8 @@ def download_professional_sales_report_csv(
         mode=mode,
         selected_date=selected_date,
         start_date=start_date,
-        end_date=end_date
+        end_date=end_date,
+        tenant_id=current_tenant.id
     )
     
     meta = report.get("report_metadata", {})

@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from datetime import timedelta
+from typing import Optional, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -8,12 +9,13 @@ logger = logging.getLogger(__name__)
 def generate_future_dates(last_date, steps=7):
     return [pd.to_datetime(last_date) + timedelta(days=i) for i in range(1, steps + 1)]
 
-def save_predictions_to_db(db, sku, dates, predictions, model_name, mae=None, rmse=None, wape=None):
+def save_predictions_to_db(db, sku, dates, predictions, model_name, mae=None, rmse=None, wape=None, tenant_id: Optional[Any] = None):
     try:
         from app.models.forecast import Forecast, ModelRun
         
-        # Create Model Run record with evaluation metrics
+        # Create Model Run record with evaluation metrics and tenant scoping
         run = ModelRun(
+            tenant_id=tenant_id,
             model_version=model_name,
             status="SUCCESS",
             sku=sku,
@@ -28,6 +30,7 @@ def save_predictions_to_db(db, sku, dates, predictions, model_name, mae=None, rm
         # Store predictions for SKU
         for dt, pred in zip(dates, predictions):
             forecast = Forecast(
+                tenant_id=tenant_id,
                 model_run_id=run.id,
                 forecast_date=pd.to_datetime(dt).to_pydatetime(),
                 sku=sku,

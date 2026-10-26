@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 
 export default function ProfilePage() {
-  const { user, logout, loading } = useAuth()
+  const { user, logout, loading, activeOrg, organizations } = useAuth()
 
   if (loading) {
     return (
@@ -108,9 +108,27 @@ export default function ProfilePage() {
 
         <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
           <div className="flex items-center justify-between">
+            <span className="text-slate-400">Active Workspace Name:</span>
+            <span className="font-semibold text-white">
+              {activeOrg?.name || 'Primary Workspace'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400">Workspace Member Role:</span>
+            <span className="font-mono text-primary font-semibold">
+              {activeOrg?.role || 'OWNER'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400">Subscription Tier:</span>
+            <span className="font-mono text-slate-200">
+              {activeOrg?.subscription_tier || 'FREE'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
             <span className="text-slate-400">Workspace Tenant ID:</span>
             <span className="font-mono font-medium text-white">
-              {user.tenant_id || 'Global Enterprise Sandbox (Tenant-01)'}
+              {activeOrg?.id || user.tenant_id || 'Global Enterprise Sandbox (Tenant-01)'}
             </span>
           </div>
           <div className="flex items-center justify-between">

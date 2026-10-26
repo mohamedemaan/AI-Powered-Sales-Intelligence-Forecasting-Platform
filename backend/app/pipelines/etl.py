@@ -1,4 +1,5 @@
 import pandas as pd
+from typing import Optional, Any
 from sqlalchemy.orm import Session
 from app.models.data import RawSalesData
 from app.data.validation import validate_sales_data
@@ -16,7 +17,7 @@ def read_csv_safe(file_path: str) -> pd.DataFrame:
             raise ValueError(f"Invalid CSV structure: {e}")
     return pd.read_csv(file_path, encoding_errors='replace')
 
-def process_upload(db: Session, file_path: str, replace: bool = True):
+def process_upload(db: Session, file_path: str, replace: bool = True, tenant_id: Optional[Any] = None):
     try:
         df = read_csv_safe(file_path)
     except Exception as e:
@@ -35,9 +36,14 @@ def process_upload(db: Session, file_path: str, replace: bool = True):
     if replace:
         try:
             from app.models.forecast import Forecast, ModelRun
-            db.query(Forecast).delete()
-            db.query(ModelRun).delete()
-            db.query(RawSalesData).delete()
+            if tenant_id:
+                db.query(Forecast).filter(Forecast.tenant_id == tenant_id).delete()
+                db.query(ModelRun).filter(ModelRun.tenant_id == tenant_id).delete()
+                db.query(RawSalesData).filter(RawSalesData.tenant_id == tenant_id).delete()
+            else:
+                db.query(Forecast).delete()
+                db.query(ModelRun).delete()
+                db.query(RawSalesData).delete()
             db.commit()
             logger.info("Cleared prior raw sales data, forecasts, and model runs before fresh upload.")
         except Exception as e:
@@ -50,6 +56,8 @@ def process_upload(db: Session, file_path: str, replace: bool = True):
     for r in records:
         # Strip NaN values and keep only valid SQLAlchemy table attributes
         clean_r = {k: v for k, v in r.items() if k in valid_cols and pd.notna(v) and k != 'id'}
+        if tenant_id and "tenant_id" in valid_cols:
+            clean_r["tenant_id"] = tenant_id
         db.add(RawSalesData(**clean_r, status="PROCESSED"))
     
     try:
@@ -61,10 +69,12 @@ def process_upload(db: Session, file_path: str, replace: bool = True):
         
     return len(records)
 
-def extract_for_features(db: Session, sku: str = None, target: str = None) -> pd.DataFrame:
+def extract_for_features(db: Session, sku: str = None, target: str = None, tenant_id: Optional[Any] = None) -> pd.DataFrame:
     try:
         query_val = target or sku
         query = db.query(RawSalesData).filter(RawSalesData.status == "PROCESSED")
+        if tenant_id:
+            query = query.filter(RawSalesData.tenant_id == tenant_id)
         if query_val and query_val.strip().upper() not in ["ALL", "GLOBAL", "TOTAL"]:
             clean_val = query_val.strip()
             from sqlalchemy import or_

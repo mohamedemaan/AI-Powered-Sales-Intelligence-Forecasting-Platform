@@ -1,8 +1,9 @@
-from sqlalchemy import Column, String, Integer, Numeric, Date, ForeignKey
+from sqlalchemy import Column, String, Integer, Numeric, Date, ForeignKey, Uuid
 from app.db.base import BaseModel
 
 class RawSalesData(BaseModel):
     __tablename__ = "raw_sales_data"
+    tenant_id = Column(Uuid(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True, index=True)
     date = Column(Date, nullable=False, index=True)
     order_id = Column(String(100), nullable=True, index=True)
     sku = Column(String(100), nullable=False, index=True)

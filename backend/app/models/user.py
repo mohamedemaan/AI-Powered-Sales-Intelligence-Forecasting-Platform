@@ -16,4 +16,7 @@ class User(BaseModel):
     password_hash = Column(String(255), nullable=False)
     role = Column(Enum(UserRole), default=UserRole.ANALYST, nullable=False)
     is_active = Column(Boolean, default=True)
-    tenant_id = Column(ForeignKey("tenants.id"), nullable=True) # Nullable for global admins or during setup
+    tenant_id = Column(ForeignKey("tenants.id"), nullable=True) # Active tenant workspace pointer
+
+    # Relationships
+    memberships = relationship("TenantMember", back_populates="user", cascade="all, delete-orphan")

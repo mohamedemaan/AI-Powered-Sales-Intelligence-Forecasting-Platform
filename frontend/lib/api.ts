@@ -8,16 +8,19 @@ const api = axios.create({
   },
 });
 
-// Automatically attach JWT token to every request
+// Automatically attach JWT token and active organization context to every request
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("token");
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    const activeOrgId = localStorage.getItem("active_organization_id");
+    if (activeOrgId) {
+      config.headers["X-Organization-ID"] = activeOrgId;
+    }
   }
   return config;
 });
 
 export default api;
-

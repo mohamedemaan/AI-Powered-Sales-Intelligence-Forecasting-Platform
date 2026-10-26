@@ -131,7 +131,8 @@ def generate_professional_sales_report(
     mode: Optional[str] = "range",
     selected_date: Optional[str] = None,
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    tenant_id: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
     Core business intelligence engine for compiling the Professional Sales Summary Report.
@@ -142,9 +143,12 @@ def generate_professional_sales_report(
     gen_timestamp = now_utc.isoformat() + "Z"
     
     # 1. Dataset metadata & boundaries
-    total_db_records = db.query(RawSalesData).count()
-    min_date_raw = db.query(func.min(RawSalesData.date)).scalar()
-    max_date_raw = db.query(func.max(RawSalesData.date)).scalar()
+    base_raw = db.query(RawSalesData)
+    if tenant_id:
+        base_raw = base_raw.filter(RawSalesData.tenant_id == tenant_id)
+    total_db_records = base_raw.count()
+    min_date_raw = base_raw.with_entities(func.min(RawSalesData.date)).scalar()
+    max_date_raw = base_raw.with_entities(func.max(RawSalesData.date)).scalar()
     min_date_str = format_date_safe(min_date_raw)
     max_date_str = format_date_safe(max_date_raw)
     
@@ -158,6 +162,8 @@ def generate_professional_sales_report(
         
     # 2. Build filtered SQL query
     query = db.query(RawSalesData).filter(RawSalesData.status == "PROCESSED")
+    if tenant_id:
+        query = query.filter(RawSalesData.tenant_id == tenant_id)
     
     # Filter by Product/SKU if specified
     if not is_all_products:

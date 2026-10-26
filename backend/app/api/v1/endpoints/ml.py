@@ -8,7 +8,9 @@ import numpy as np
 import pandas as pd
 import logging
 
+from app.api import deps
 from app.api.deps import get_db
+from app.models.tenant import Tenant
 from app.models.data import RawSalesData
 from app.pipelines.etl import extract_for_features
 from app.features.engineering import generate_features
@@ -89,7 +91,8 @@ def save_model_health_run_log(
     mae: Optional[float],
     rmse: Optional[float],
     wape: Optional[float],
-    chart_data: Optional[List[dict]] = None
+    chart_data: Optional[List[dict]] = None,
+    tenant_id: Optional[Any] = None
 ) -> Optional[Any]:
     """
     Persists model evaluation metrics and generated forecast steps into ModelRun and Forecast tables.
@@ -101,6 +104,7 @@ def save_model_health_run_log(
         clean_model = (model_name or "BASELINE").upper()
         
         new_model_log = ModelRun(
+            tenant_id=tenant_id,
             model_name=clean_model,
             model_version=clean_model,
             status="SUCCESS",
@@ -118,6 +122,7 @@ def save_model_health_run_log(
                 if pt.get("forecast") is not None and pt.get("full_date"):
                     try:
                         fc = Forecast(
+                            tenant_id=tenant_id,
                             model_run_id=new_model_log.id,
                             forecast_date=pd.to_datetime(pt["full_date"]).to_pydatetime(),
                             sku=clean_sku,
@@ -137,13 +142,18 @@ def save_model_health_run_log(
 
 
 @router.post("/train")
-def train_and_select_models(sku: str = "ALL", forecast_days: int = 7, db: Session = Depends(get_db)):
+def train_and_select_models(
+    sku: str = "ALL",
+    forecast_days: int = 7,
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+):
     clean_sku = (sku or "").strip()
     is_all = clean_sku.upper() in ["ALL", "GLOBAL", "TOTAL", ""]
     
     # 1. Extract Data
     if is_all:
-        df = extract_for_features(db, None)
+        df = extract_for_features(db, None, tenant_id=current_tenant.id)
         if not df.empty:
             df['date'] = pd.to_datetime(df['date'])
             df = df.groupby('date', as_index=False).agg({
@@ -154,7 +164,7 @@ def train_and_select_models(sku: str = "ALL", forecast_days: int = 7, db: Sessio
             df['sku'] = 'ALL'
             df = df.sort_values('date').reset_index(drop=True)
     else:
-        df = extract_for_features(db, clean_sku)
+        df = extract_for_features(db, clean_sku, tenant_id=current_tenant.id)
         if not df.empty:
             df['date'] = pd.to_datetime(df['date'])
             df = df.sort_values('date').reset_index(drop=True)
@@ -247,7 +257,8 @@ def train_and_select_models(sku: str = "ALL", forecast_days: int = 7, db: Sessio
         best_model,
         mae=best_metrics.get('mae'),
         rmse=best_metrics.get('rmse'),
-        wape=best_metrics.get('wape')
+        wape=best_metrics.get('wape'),
+        tenant_id=current_tenant.id
     )
     
     return {
@@ -270,7 +281,8 @@ def analyze_and_forecast_sales(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     model_preference: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
 ):
     """
     Unified date-based sales analysis & forecasting workflow.
@@ -288,23 +300,30 @@ def analyze_and_forecast_sales(
         clean_target = p_target.strip()
         is_all = clean_target.upper() in ["ALL", "GLOBAL", "TOTAL", "", "ALL PRODUCTS", "ALL SKUS"]
 
-        # 2. Check if any sales data exists
-        total_sales_count = db.query(RawSalesData).filter(RawSalesData.status == "PROCESSED").count()
+        # 2. Check if any sales data exists for the current organization
+        total_sales_count = db.query(RawSalesData).filter(
+            RawSalesData.status == "PROCESSED",
+            RawSalesData.tenant_id == current_tenant.id
+        ).count()
         if total_sales_count == 0:
             raise HTTPException(
                 status_code=400,
-                detail="No processed sales data found in the system. Please upload a dataset in the Data Ingestion tab first."
+                detail=f"No processed sales data found in {current_tenant.name}. Please upload a dataset in the Data Ingestion tab first."
             )
 
         # 3. Query records for requested product
         if is_all:
-            query = db.query(RawSalesData).filter(RawSalesData.status == "PROCESSED")
+            query = db.query(RawSalesData).filter(
+                RawSalesData.status == "PROCESSED",
+                RawSalesData.tenant_id == current_tenant.id
+            )
             resolved_name = "All Products (Global Aggregate)"
             resolved_sku = "ALL"
         else:
             # Match by product_name or sku
             query = db.query(RawSalesData).filter(
                 RawSalesData.status == "PROCESSED",
+                RawSalesData.tenant_id == current_tenant.id,
                 or_(
                     RawSalesData.product_name == clean_target,
                     RawSalesData.sku == clean_target
@@ -315,6 +334,7 @@ def analyze_and_forecast_sales(
                 # Case-insensitive / partial search
                 query = db.query(RawSalesData).filter(
                     RawSalesData.status == "PROCESSED",
+                    RawSalesData.tenant_id == current_tenant.id,
                     or_(
                         RawSalesData.product_name.ilike(f"%{clean_target}%"),
                         RawSalesData.sku.ilike(f"%{clean_target}%")
@@ -325,13 +345,17 @@ def analyze_and_forecast_sales(
             if not first_match:
                 sample_products = db.query(
                     func.coalesce(RawSalesData.product_name, RawSalesData.sku)
-                ).filter(RawSalesData.status == "PROCESSED").distinct().limit(5).all()
+                ).filter(
+                    RawSalesData.status == "PROCESSED",
+                    RawSalesData.tenant_id == current_tenant.id
+                ).distinct().limit(5).all()
                 samples_str = ", ".join([f"'{s[0]}'" for s in sample_products if s[0]])
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Target Name '{clean_target}' was not found in the uploaded sales data. Available products include: {samples_str}. Or choose 'All Products (Global Aggregate)'."
+                    detail=f"Target Name '{clean_target}' was not found in {current_tenant.name}. Available products include: {samples_str}. Or choose 'All Products (Global Aggregate)'."
                 )
             resolved_name = first_match.product_name or first_match.sku
+            resolved_sku = first_match.sku
             resolved_sku = first_match.sku
 
         # Read records directly from SQLAlchemy query
@@ -844,7 +868,8 @@ def analyze_and_forecast_sales(
                 mae=forecast_results["evaluation_metrics"]["mae"],
                 rmse=forecast_results["evaluation_metrics"]["rmse"],
                 wape=forecast_results["evaluation_metrics"]["wape"],
-                chart_data=chart_data
+                chart_data=chart_data,
+                tenant_id=current_tenant.id
             )
             if logged_run:
                 summary["model_run_id"] = str(logged_run.id)
@@ -869,26 +894,27 @@ def analyze_and_forecast_sales(
 def get_prediction_history(
     limit: int = 50,
     sku: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
 ):
     """
-    Returns prediction history audit log:
+    Returns prediction history audit log scoped to the active workspace:
     Model runs, saved forecasts, horizon, metrics (MAE, RMSE, WAPE),
     and actual vs. predicted comparisons where ground truth exists in RawSalesData.
     """
     from app.models.forecast import ModelRun, Forecast
     
-    query = db.query(ModelRun).order_by(ModelRun.created_at.desc())
+    query = db.query(ModelRun).filter(ModelRun.tenant_id == current_tenant.id).order_by(ModelRun.created_at.desc())
     if sku and sku.upper() not in ["ALL", "GLOBAL", "TOTAL", ""]:
         query = query.filter(ModelRun.sku == sku)
         
     runs = query.limit(limit).all()
     if not runs:
-        return {"total_runs": 0, "runs": []}
+        return {"total_runs": 0, "runs": [], "organization_id": str(current_tenant.id)}
         
     result_runs = []
     for r in runs:
-        forecasts = db.query(Forecast).filter(Forecast.model_run_id == r.id).order_by(Forecast.forecast_date.asc()).all()
+        forecasts = db.query(Forecast).filter(Forecast.model_run_id == r.id, Forecast.tenant_id == current_tenant.id).order_by(Forecast.forecast_date.asc()).all()
         forecast_items = []
         for f in forecasts:
             f_date = f.forecast_date.date() if hasattr(f.forecast_date, 'date') else f.forecast_date

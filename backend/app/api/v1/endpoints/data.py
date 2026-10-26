@@ -2,7 +2,8 @@ from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import Optional, Any
-from app.api.deps import get_db
+from app.api import deps
+from app.models.tenant import Tenant
 from app.models.data import RawSalesData
 import shutil
 import os
@@ -21,11 +22,18 @@ def format_date_safe(val: Optional[Any]) -> Optional[str]:
 async def upload_data(
     file: UploadFile = File(...),
     replace: bool = Query(True, description="Whether to replace previous sales records or append"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(deps.get_db),
+    current_tenant: Any = Depends(deps.get_current_tenant_or_default)
 ):
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
         
+    # Extract tenant id before file and DB transactions to prevent session detach
+    active_tenant_id = getattr(current_tenant, "id", None)
+    if not active_tenant_id:
+        active_tenant = deps.get_current_tenant_or_default(db=db)
+        active_tenant_id = active_tenant.id
+
     # Sanitize filename to prevent path traversal
     import uuid
     safe_name = f"{uuid.uuid4().hex}_{os.path.basename(file.filename)}"
@@ -36,23 +44,25 @@ async def upload_data(
         
     from app.pipelines.etl import process_upload
     try:
-        records = process_upload(db, file_path, replace=replace)
-        return {"status": "success", "records_processed": records, "replaced": replace}
+        records = process_upload(db, file_path, replace=replace, tenant_id=active_tenant_id)
+        return {"status": "success", "records_processed": records, "replaced": replace, "organization_id": str(active_tenant_id)}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/clean-duplicates")
-def deduplicate_sales_data(db: Session = Depends(get_db)):
+def deduplicate_sales_data(
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+):
     """
-    Scans raw_sales_data and removes duplicate rows from re-uploads,
-    preserving exact unique transaction records.
+    Scans raw_sales_data for the active organization workspace and removes duplicate rows.
     """
-    total_before = db.query(RawSalesData).count()
+    total_before = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id).count()
     if total_before == 0:
         return {"status": "success", "records_before": 0, "records_removed": 0, "total_records": 0}
 
     import pandas as pd
-    rows = db.query(RawSalesData).all()
+    rows = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id).all()
     records = []
     for r in rows:
         records.append({
@@ -74,7 +84,6 @@ def deduplicate_sales_data(db: Session = Depends(get_db)):
         })
 
     df = pd.DataFrame(records)
-    # Deduplicate matching date, order_id, sku, units_sold, price, total_sales
     subset_cols = ['date', 'sku', 'units_sold']
     if 'order_id' in df.columns and df['order_id'].notna().any():
         subset_cols.append('order_id')
@@ -86,11 +95,12 @@ def deduplicate_sales_data(db: Session = Depends(get_db)):
     
     records_removed = total_before - len(df_unique)
     if records_removed > 0:
-        db.query(RawSalesData).delete()
+        db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id).delete()
         valid_cols = set(c.name for c in RawSalesData.__table__.columns)
         unique_records = df_unique.to_dict(orient='records')
         for ur in unique_records:
             clean_ur = {k: v for k, v in ur.items() if k in valid_cols and pd.notna(v) and k != 'id'}
+            clean_ur['tenant_id'] = current_tenant.id
             db.add(RawSalesData(**clean_ur))
         db.commit()
 
@@ -98,48 +108,61 @@ def deduplicate_sales_data(db: Session = Depends(get_db)):
         "status": "success",
         "records_before": total_before,
         "records_removed": records_removed,
-        "total_records": len(df_unique)
+        "total_records": len(df_unique),
+        "organization_id": str(current_tenant.id)
     }
 
 @router.post("/reset")
-def reset_sales_data(db: Session = Depends(get_db)):
+def reset_sales_data(
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+):
     """
-    Clears all raw sales data, forecasts, and model runs to return to a clean initial state.
+    Clears raw sales data, forecasts, and model runs for the active organization workspace only.
     """
     from app.models.forecast import Forecast, ModelRun
     try:
-        db.query(Forecast).delete()
-        db.query(ModelRun).delete()
-        cleared = db.query(RawSalesData).delete()
+        db.query(Forecast).filter(Forecast.tenant_id == current_tenant.id).delete()
+        db.query(ModelRun).filter(ModelRun.tenant_id == current_tenant.id).delete()
+        cleared = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id).delete()
         db.commit()
-        return {"status": "success", "records_cleared": cleared}
+        return {"status": "success", "records_cleared": cleared, "organization_id": str(current_tenant.id)}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/status")
-def get_status(db: Session = Depends(get_db)):
-    count = db.query(RawSalesData).count()
-    min_date = db.query(func.min(RawSalesData.date)).scalar()
-    max_date = db.query(func.max(RawSalesData.date)).scalar()
+def get_status(
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+):
+    count = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id).count()
+    min_date = db.query(func.min(RawSalesData.date)).filter(RawSalesData.tenant_id == current_tenant.id).scalar()
+    max_date = db.query(func.max(RawSalesData.date)).filter(RawSalesData.tenant_id == current_tenant.id).scalar()
     return {
         "status": "ok",
         "total_raw_records": count,
         "min_date": format_date_safe(min_date),
         "max_date": format_date_safe(max_date),
+        "organization_id": str(current_tenant.id),
+        "organization_name": current_tenant.name
     }
 
 @router.get("/preview")
-def get_dataset_preview(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)):
+def get_dataset_preview(
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+):
     """
-    Returns comprehensive dataset inspection: filename, row count, column count,
-    detected types, date coverage, product count, category count, sample rows, and missing-value summary.
+    Returns comprehensive dataset inspection scoped to the active workspace.
     """
-    total_records = db.query(RawSalesData).count()
+    base_query = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id)
+    total_records = base_query.count()
     if total_records == 0:
         return {
             "has_data": False,
-            "filename": "No dataset loaded",
+            "filename": f"No dataset loaded in {current_tenant.name}",
             "row_count": 0,
             "column_count": 0,
             "columns": [],
@@ -147,13 +170,14 @@ def get_dataset_preview(limit: int = Query(10, ge=1, le=50), db: Session = Depen
             "product_count": 0,
             "category_count": 0,
             "missing_values": {},
-            "sample_rows": []
+            "sample_rows": [],
+            "organization_id": str(current_tenant.id)
         }
 
-    min_date = db.query(func.min(RawSalesData.date)).scalar()
-    max_date = db.query(func.max(RawSalesData.date)).scalar()
-    product_count = db.query(func.count(func.distinct(RawSalesData.sku))).scalar() or 0
-    category_count = db.query(func.count(func.distinct(RawSalesData.category))).scalar() or 0
+    min_date = db.query(func.min(RawSalesData.date)).filter(RawSalesData.tenant_id == current_tenant.id).scalar()
+    max_date = db.query(func.max(RawSalesData.date)).filter(RawSalesData.tenant_id == current_tenant.id).scalar()
+    product_count = db.query(func.count(func.distinct(RawSalesData.sku))).filter(RawSalesData.tenant_id == current_tenant.id).scalar() or 0
+    category_count = db.query(func.count(func.distinct(RawSalesData.category))).filter(RawSalesData.tenant_id == current_tenant.id).scalar() or 0
 
     span_days = None
     if min_date and max_date:
@@ -164,14 +188,14 @@ def get_dataset_preview(limit: int = Query(10, ge=1, le=50), db: Session = Depen
         except Exception:
             span_days = None
 
-    null_order_id = db.query(RawSalesData).filter(RawSalesData.order_id == None).count()
-    null_product_name = db.query(RawSalesData).filter(RawSalesData.product_name == None).count()
-    null_category = db.query(RawSalesData).filter(RawSalesData.category == None).count()
-    null_sub_cat = db.query(RawSalesData).filter(RawSalesData.sub_category == None).count()
-    null_profit = db.query(RawSalesData).filter(RawSalesData.profit == None).count()
-    null_price = db.query(RawSalesData).filter(RawSalesData.price == None).count()
-    null_total_sales = db.query(RawSalesData).filter(RawSalesData.total_sales == None).count()
-    null_discount = db.query(RawSalesData).filter(RawSalesData.discount_pct == None).count()
+    null_order_id = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.order_id == None).count()
+    null_product_name = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.product_name == None).count()
+    null_category = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.category == None).count()
+    null_sub_cat = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.sub_category == None).count()
+    null_profit = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.profit == None).count()
+    null_price = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.price == None).count()
+    null_total_sales = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.total_sales == None).count()
+    null_discount = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.discount_pct == None).count()
 
     columns = [
         {"name": "date", "type": "Date", "nullable": False, "description": "Transaction calendar date"},
@@ -188,7 +212,7 @@ def get_dataset_preview(limit: int = Query(10, ge=1, le=50), db: Session = Depen
         {"name": "available_stock", "type": "Integer", "nullable": True, "description": "On-hand inventory level"}
     ]
 
-    samples = db.query(RawSalesData).order_by(RawSalesData.id.asc()).limit(limit).all()
+    samples = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id).order_by(RawSalesData.id.asc()).limit(limit).all()
     sample_rows = []
     for r in samples:
         sample_rows.append({
@@ -206,9 +230,8 @@ def get_dataset_preview(limit: int = Query(10, ge=1, le=50), db: Session = Depen
             "discount_pct": float(r.discount_pct) if r.discount_pct is not None else None,
         })
 
-    latest_filename = "Active Dataset (Verified Ingestion)"
+    latest_filename = f"{current_tenant.name} Dataset"
     try:
-        import os
         if os.path.exists("uploads"):
             files = [f for f in os.listdir("uploads") if f.endswith(".csv")]
             if files:
@@ -244,7 +267,9 @@ def get_dataset_preview(limit: int = Query(10, ge=1, le=50), db: Session = Depen
             "total_sales": null_total_sales,
             "discount_pct": null_discount
         },
-        "sample_rows": sample_rows
+        "sample_rows": sample_rows,
+        "organization_id": str(current_tenant.id),
+        "organization_name": current_tenant.name
     }
 
 @router.get("/products")
@@ -252,15 +277,24 @@ def get_dataset_preview(limit: int = Query(10, ge=1, le=50), db: Session = Depen
 def get_available_products(
     search: Optional[str] = Query(None, description="Search by product name or SKU"),
     limit: int = Query(200, ge=1, le=500),
-    db: Session = Depends(get_db)
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
 ):
     """
-    Returns unique products/SKUs present in the database along with record counts,
-    date coverage, and user-friendly labels.
+    Returns unique products/SKUs present in the active organization workspace.
     """
-    total_count = db.query(RawSalesData).filter(RawSalesData.status == "PROCESSED").count()
-    dataset_min_date = db.query(func.min(RawSalesData.date)).filter(RawSalesData.status == "PROCESSED").scalar()
-    dataset_max_date = db.query(func.max(RawSalesData.date)).filter(RawSalesData.status == "PROCESSED").scalar()
+    total_count = db.query(RawSalesData).filter(
+        RawSalesData.status == "PROCESSED",
+        RawSalesData.tenant_id == current_tenant.id
+    ).count()
+    dataset_min_date = db.query(func.min(RawSalesData.date)).filter(
+        RawSalesData.status == "PROCESSED",
+        RawSalesData.tenant_id == current_tenant.id
+    ).scalar()
+    dataset_max_date = db.query(func.max(RawSalesData.date)).filter(
+        RawSalesData.status == "PROCESSED",
+        RawSalesData.tenant_id == current_tenant.id
+    ).scalar()
     
     query = db.query(
         func.coalesce(RawSalesData.product_name, RawSalesData.sku).label("p_name"),
@@ -268,7 +302,10 @@ def get_available_products(
         func.count(RawSalesData.id).label("count"),
         func.min(RawSalesData.date).label("p_min_date"),
         func.max(RawSalesData.date).label("p_max_date")
-    ).filter(RawSalesData.status == "PROCESSED")
+    ).filter(
+        RawSalesData.status == "PROCESSED",
+        RawSalesData.tenant_id == current_tenant.id
+    )
     
     if search:
         s_term = f"%{search.strip()}%"
@@ -286,13 +323,11 @@ def get_available_products(
     
     rows = query.all()
     
-    # Check if duplicate product names exist to disambiguate cleanly
     name_occurrences = {}
     for r in rows:
         name_occurrences[r.p_name] = name_occurrences.get(r.p_name, 0) + 1
         
     result = []
-    # If no search filter, add global aggregate option
     if not search and total_count > 0:
         result.append({
             "sku": "ALL",

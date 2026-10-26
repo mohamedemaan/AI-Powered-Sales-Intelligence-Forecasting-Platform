@@ -34,13 +34,15 @@ def format_date_safe(val: Any) -> Optional[str]:
     s = str(val).strip()
     return s[:10] if len(s) >= 10 else s
 
-def get_period_dates(db: Session, period: str = "all", start_date: Optional[str] = None, end_date: Optional[str] = None):
+def get_period_dates(db: Session, period: str = "all", start_date: Optional[str] = None, end_date: Optional[str] = None, tenant_id: Optional[Any] = None):
     """
     Determines the current date window and prior equivalent window based on temporal grounding.
     Uses the latest historical transaction date in the ledger as 'today'.
     """
-    min_date = db.query(func.min(RawSalesData.date)).scalar()
-    max_date = db.query(func.max(RawSalesData.date)).scalar()
+    query = db.query(func.min(RawSalesData.date), func.max(RawSalesData.date))
+    if tenant_id:
+        query = query.filter(RawSalesData.tenant_id == tenant_id)
+    min_date, max_date = query.first()
 
     if not max_date or not min_date:
         return None, None, None, None
@@ -96,8 +98,10 @@ def get_period_dates(db: Session, period: str = "all", start_date: Optional[str]
 
     return curr_start, curr_end, prior_start, prior_end
 
-def calculate_kpis_for_window(db: Session, start_dt: Optional[date], end_dt: Optional[date], sku: Optional[str] = None):
+def calculate_kpis_for_window(db: Session, start_dt: Optional[date], end_dt: Optional[date], sku: Optional[str] = None, tenant_id: Optional[Any] = None):
     query = db.query(RawSalesData)
+    if tenant_id:
+        query = query.filter(RawSalesData.tenant_id == tenant_id)
     if start_dt and end_dt:
         query = query.filter(RawSalesData.date >= start_dt, RawSalesData.date <= end_dt)
     
@@ -148,9 +152,13 @@ def get_overview_data(
     period: str = "all",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    sku: Optional[str] = None
+    sku: Optional[str] = None,
+    tenant_id: Optional[Any] = None
 ) -> Dict[str, Any]:
-    total_records = db.query(RawSalesData).count()
+    total_query = db.query(RawSalesData)
+    if tenant_id:
+        total_query = total_query.filter(RawSalesData.tenant_id == tenant_id)
+    total_records = total_query.count()
     if total_records == 0:
         return {
             "revenue": 0.0,
@@ -171,24 +179,30 @@ def get_overview_data(
         }
 
     curr_start, curr_end, prior_start, prior_end = get_period_dates(
-        db, period=period, start_date=start_date, end_date=end_date
+        db, period=period, start_date=start_date, end_date=end_date, tenant_id=tenant_id
     )
 
-    current_kpis = calculate_kpis_for_window(db, curr_start, curr_end, sku)
+    current_kpis = calculate_kpis_for_window(db, curr_start, curr_end, sku, tenant_id=tenant_id)
 
     # Growth vs. prior period
     revenue_growth = None
     if prior_start and prior_end:
-        prior_kpis = calculate_kpis_for_window(db, prior_start, prior_end, sku)
+        prior_kpis = calculate_kpis_for_window(db, prior_start, prior_end, sku, tenant_id=tenant_id)
         if prior_kpis["revenue"] > 0:
             diff = current_kpis["revenue"] - prior_kpis["revenue"]
             revenue_growth = round((diff / prior_kpis["revenue"]) * 100, 1)
 
     # Active SKUs count
-    active_skus = db.query(func.count(func.distinct(RawSalesData.sku))).scalar() or 0
+    skus_query = db.query(func.count(func.distinct(RawSalesData.sku)))
+    if tenant_id:
+        skus_query = skus_query.filter(RawSalesData.tenant_id == tenant_id)
+    active_skus = skus_query.scalar() or 0
 
     # Model accuracy
-    latest_run = db.query(ModelRun).filter(ModelRun.wape != None).order_by(ModelRun.created_at.desc()).first()
+    run_query = db.query(ModelRun).filter(ModelRun.wape != None)
+    if tenant_id:
+        run_query = run_query.filter(ModelRun.tenant_id == tenant_id)
+    latest_run = run_query.order_by(ModelRun.created_at.desc()).first()
     model_accuracy = (
         round((1.0 - latest_run.wape) * 100, 1)
         if (latest_run and latest_run.wape is not None and 0.0 <= latest_run.wape <= 1.0)
@@ -201,7 +215,7 @@ def get_overview_data(
     import pandas as pd
     anomalies_count = 0
     try:
-        df_feat = extract_for_features(db, None)
+        df_feat = extract_for_features(db, None, tenant_id=tenant_id)
         if not df_feat.empty and len(df_feat) >= 7:
             df_feat['date'] = pd.to_datetime(df_feat['date'])
             df_anom = detect_anomalies(df_feat)
@@ -232,14 +246,17 @@ def get_overview_data(
         insights.append(f"Sales {direction} by {abs(revenue_growth)}% compared to the prior equivalent cycle.")
 
     # Top performing category
-    top_cat = db.query(
+    top_cat_query = db.query(
         RawSalesData.category,
         func.sum(func.coalesce(RawSalesData.total_sales, RawSalesData.units_sold * func.coalesce(RawSalesData.price, 0))).label("cat_rev")
     ).filter(
         RawSalesData.category != None,
         RawSalesData.date >= curr_start if curr_start else True,
         RawSalesData.date <= curr_end if curr_end else True
-    ).group_by(RawSalesData.category).order_by(desc("cat_rev")).first()
+    )
+    if tenant_id:
+        top_cat_query = top_cat_query.filter(RawSalesData.tenant_id == tenant_id)
+    top_cat = top_cat_query.group_by(RawSalesData.category).order_by(desc("cat_rev")).first()
 
     if top_cat and top_cat[0]:
         insights.append(f"Top-performing category is '{top_cat[0]}' generating ${float(top_cat[1]):,.2f} in sales.")
@@ -275,14 +292,17 @@ def get_trends_data(
     period: str = "all",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    sku: Optional[str] = None
+    sku: Optional[str] = None,
+    tenant_id: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
     Time-series trends aggregating revenue, units sold, orders, and profit over time.
     Supports 'daily', 'weekly', 'monthly'.
     """
-    curr_start, curr_end, _, _ = get_period_dates(db, period=period, start_date=start_date, end_date=end_date)
+    curr_start, curr_end, _, _ = get_period_dates(db, period=period, start_date=start_date, end_date=end_date, tenant_id=tenant_id)
     query = db.query(RawSalesData)
+    if tenant_id:
+        query = query.filter(RawSalesData.tenant_id == tenant_id)
     if curr_start and curr_end:
         query = query.filter(RawSalesData.date >= curr_start, RawSalesData.date <= curr_end)
     clean_sku = (sku or "").strip()
@@ -372,13 +392,16 @@ def get_categories_breakdown(
     db: Session,
     period: str = "all",
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    tenant_id: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
     Computes category and sub-category contribution, distinct orders, units, profit, and margin.
     """
-    curr_start, curr_end, _, _ = get_period_dates(db, period=period, start_date=start_date, end_date=end_date)
+    curr_start, curr_end, _, _ = get_period_dates(db, period=period, start_date=start_date, end_date=end_date, tenant_id=tenant_id)
     query = db.query(RawSalesData)
+    if tenant_id:
+        query = query.filter(RawSalesData.tenant_id == tenant_id)
     if curr_start and curr_end:
         query = query.filter(RawSalesData.date >= curr_start, RawSalesData.date <= curr_end)
 
@@ -469,13 +492,16 @@ def get_product_performance(
     period: str = "all",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    tenant_id: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
     Returns top-selling and lowest-selling products with contribution %, volume, and profit.
     """
-    curr_start, curr_end, _, _ = get_period_dates(db, period=period, start_date=start_date, end_date=end_date)
+    curr_start, curr_end, _, _ = get_period_dates(db, period=period, start_date=start_date, end_date=end_date, tenant_id=tenant_id)
     query = db.query(RawSalesData)
+    if tenant_id:
+        query = query.filter(RawSalesData.tenant_id == tenant_id)
     if curr_start and curr_end:
         query = query.filter(RawSalesData.date >= curr_start, RawSalesData.date <= curr_end)
     if search:
@@ -547,12 +573,15 @@ def get_transactions_table(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     sort_by: str = "date",
-    sort_dir: str = "desc"
+    sort_dir: str = "desc",
+    tenant_id: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
     Interactive transaction explorer with search, sorting, filtering, and pagination.
     """
     query = db.query(RawSalesData)
+    if tenant_id:
+        query = query.filter(RawSalesData.tenant_id == tenant_id)
 
     if start_date:
         s_dt = parse_date_safe(start_date)
