@@ -102,8 +102,8 @@ export default function DataManagementPage() {
   }, [])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.dataTransfer?.files?.[0] || e.target.files?.[0]) {
-      const selected = e.dataTransfer?.files?.[0] || e.target.files?.[0]
+    if (e.target.files?.[0]) {
+      const selected = e.target.files[0]
       setFile(selected)
       setErrorMsg(null)
       setUploadResult(null)

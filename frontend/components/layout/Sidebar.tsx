@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useAuth } from '../../hooks/useAuth'
 
 const navItems = [
-  { href: '/', label: 'Overview' },
+  { href: '/dashboard', label: 'Overview' },
   { href: '/data', label: 'Data Ingestion & Preview' },
   { href: '/analytics', label: 'Sales Analytics' },
   { href: '/forecast', label: 'Forecast Lab' },
@@ -24,7 +24,7 @@ export function Sidebar() {
   return (
     <aside className="w-64 bg-surface border-r border-slate-700 flex flex-col p-4">
       <div className="mb-8">
-        <h1 className="text-xl font-bold text-white">Sales Intel AI</h1>
+        <h1 className="text-xl font-bold text-white">SalesMind <span className="text-primary">AI</span></h1>
         <span className="text-xs text-primary font-mono block">Enterprise Platform</span>
       </div>
 

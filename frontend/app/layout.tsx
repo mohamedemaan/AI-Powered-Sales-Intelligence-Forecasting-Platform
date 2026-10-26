@@ -1,11 +1,11 @@
 import './globals.css'
 import { ReactNode } from 'react'
 import Providers from './providers'
-import { Sidebar } from '../components/layout/Sidebar'
+import { AppShell } from '../components/layout/AppShell'
 
 export const metadata = {
-  title: 'Sales Intel AI',
-  description: 'AI-Powered Sales Intelligence Platform',
+  title: 'SalesMind AI — AI-Powered Sales Intelligence & Forecasting Platform',
+  description: 'Turn your sales data into intelligent predictions, actionable insights, and smarter business decisions.',
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -13,12 +13,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body className="bg-background text-slate-200 min-h-screen">
         <Providers>
-          <div className="flex h-screen overflow-hidden">
-            <Sidebar />
-            <main className="flex-1 overflow-y-auto p-8">
-              {children}
-            </main>
-          </div>
+          <AppShell>
+            {children}
+          </AppShell>
         </Providers>
       </body>
     </html>

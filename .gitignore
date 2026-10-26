@@ -45,7 +45,8 @@ uploads/
 .DS_Store
 Thumbs.db
 powershell.cmd
-
+*.tsbuildinfo
+audit_out.txt
 
 # Docker
 *.log

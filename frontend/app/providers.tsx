@@ -63,7 +63,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       await fetchUser()
-      router.push('/')
+      router.push('/dashboard')
       return { success: true }
     } catch (err: any) {
       const msg = err.response?.data?.detail || 'Invalid email or password.'
@@ -92,6 +92,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
     setUser(null)
     setLoading(false)
+    router.push('/')
   }
 
   useEffect(() => {
