@@ -32,6 +32,38 @@ export const useAuthContext = () => {
   return context
 }
 
+function formatErrorMessage(err: any, fallback: string): string {
+  const detail = err.response?.data?.detail
+  if (typeof detail === 'string') {
+    return detail
+  }
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item: any) => {
+        if (typeof item === 'string') return item
+        if (item && typeof item === 'object' && item.msg) {
+          return String(item.msg).replace(/^Value error,\s*/i, '')
+        }
+        return JSON.stringify(item)
+      })
+      .filter(Boolean)
+      .join('. ')
+  }
+  if (detail && typeof detail === 'object') {
+    if (detail.msg) {
+      return String(detail.msg).replace(/^Value error,\s*/i, '')
+    }
+    return JSON.stringify(detail)
+  }
+  if (err.response?.data?.message) {
+    return String(err.response.data.message)
+  }
+  if (err.message && typeof err.message === 'string') {
+    return err.message
+  }
+  return fallback
+}
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
@@ -66,7 +98,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       router.push('/dashboard')
       return { success: true }
     } catch (err: any) {
-      const msg = err.response?.data?.detail || 'Invalid email or password.'
+      const msg = formatErrorMessage(err, 'Invalid email or password.')
       return { success: false, error: msg }
     }
   }
@@ -81,7 +113,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       })
       return await login(email, password)
     } catch (err: any) {
-      const msg = err.response?.data?.detail || 'Registration failed.'
+      const msg = formatErrorMessage(err, 'Registration failed. Please verify credentials.')
       return { success: false, error: msg }
     }
   }

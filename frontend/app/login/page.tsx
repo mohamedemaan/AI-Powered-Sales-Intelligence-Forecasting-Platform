@@ -27,6 +27,30 @@ function LoginFormContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMsg(null)
+
+    if (isRegister) {
+      if (password.length < 12) {
+        setErrorMsg('Password must be at least 12 characters.')
+        return
+      }
+      if (!/[A-Z]/.test(password)) {
+        setErrorMsg('Password must contain at least one uppercase letter (A-Z).')
+        return
+      }
+      if (!/[a-z]/.test(password)) {
+        setErrorMsg('Password must contain at least one lowercase letter (a-z).')
+        return
+      }
+      if (!/[0-9]/.test(password)) {
+        setErrorMsg('Password must contain at least one number (0-9).')
+        return
+      }
+      if (!/[\W_]/.test(password)) {
+        setErrorMsg('Password must contain at least one special character (!@#$%^&* etc).')
+        return
+      }
+    }
+
     setSubmitting(true)
 
     const result = isRegister 
@@ -34,7 +58,8 @@ function LoginFormContent() {
       : await login(email, password)
 
     if (!result.success) {
-      setErrorMsg(result.error || 'Authentication failed. Please verify credentials.')
+      const err = typeof result.error === 'string' ? result.error : 'Authentication failed. Please verify credentials.'
+      setErrorMsg(err)
     }
     setSubmitting(false)
   }
@@ -168,8 +193,8 @@ function LoginFormContent() {
           </div>
 
           {errorMsg && (
-            <div className="p-3 bg-danger/10 border border-danger/40 text-danger rounded-xl text-xs text-center font-medium">
-              {errorMsg}
+            <div className="p-3 bg-danger/10 border border-danger/40 text-danger rounded-xl text-xs text-center font-medium leading-relaxed">
+              {typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg)}
             </div>
           )}
 
@@ -203,6 +228,30 @@ function LoginFormContent() {
                 className="w-full bg-slate-900/90 text-white px-3.5 py-2.5 rounded-xl border border-slate-700 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm transition placeholder:text-slate-500"
               />
             </div>
+
+            {isRegister && (
+              <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1.5">
+                <span className="font-semibold text-slate-300 block text-xs">Password Security Policy:</span>
+                <ul className="space-y-1 text-[11px]">
+                  <li className={`flex items-center gap-1.5 ${password.length >= 12 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    <span>{password.length >= 12 ? '✓' : '•'}</span>
+                    <span>At least 12 characters (current: {password.length})</span>
+                  </li>
+                  <li className={`flex items-center gap-1.5 ${/[A-Z]/.test(password) && /[a-z]/.test(password) ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    <span>{/[A-Z]/.test(password) && /[a-z]/.test(password) ? '✓' : '•'}</span>
+                    <span>Both uppercase (A-Z) and lowercase (a-z) letters</span>
+                  </li>
+                  <li className={`flex items-center gap-1.5 ${/[0-9]/.test(password) ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    <span>{/[0-9]/.test(password) ? '✓' : '•'}</span>
+                    <span>At least one numeric digit (0-9)</span>
+                  </li>
+                  <li className={`flex items-center gap-1.5 ${/[\W_]/.test(password) ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    <span>{/[\W_]/.test(password) ? '✓' : '•'}</span>
+                    <span>At least one special character (!@#$%^&*)</span>
+                  </li>
+                </ul>
+              </div>
+            )}
 
             <button 
               type="submit"
