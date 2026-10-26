@@ -15,7 +15,9 @@ The Sales Intelligence Platform is structured as a decoupled, modular full-stack
 ```mermaid
 flowchart TD
     subgraph Client["Next.js 14 Frontend (Port 3000)"]
-        UI_Overview["Overview Dashboard (/)"]
+        UI_Welcome["Animated Welcome Page (/)"]
+        UI_Auth["Authentication (/login)"]
+        UI_Overview["Overview Dashboard (/dashboard)"]
         UI_Analytics["Sales Analytics (/analytics)"]
         UI_Forecast["Forecast Lab (/forecast)"]
         UI_Reports["Reports & Export Center (/reports)"]
@@ -50,6 +52,8 @@ flowchart TD
         Uploads["Uploads Directory (uploads/)"]
     end
 
+    UI_Welcome --> AxiosClient
+    UI_Auth --> AxiosClient
     UI_Overview --> AxiosClient
     UI_Analytics --> AxiosClient
     UI_Forecast --> AxiosClient

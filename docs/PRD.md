@@ -64,7 +64,8 @@ Deliver a reliable, modular, and audit-ready Sales Intelligence SaaS platform th
 
 | Capability | Module / Route | Status | Notes |
 | :--- | :--- | :--- | :--- |
-| **Dashboard Overview & KPIs** | `frontend/app/page.tsx`<br>`GET /api/v1/analytics/overview` | **Implemented** | Period filters (all, today, 7d, 30d, this_month, last_month, custom), 10 core KPIs, PoP comparisons, deterministic insights. |
+| **Animated Welcome & Auth Flow** | `frontend/app/page.tsx`<br>`frontend/app/login/page.tsx` | **Implemented** | SalesMind AI landing page with 7-stage timed animation, SVG telemetry chart, floating cards, exit transition to auth, and clean AppShell segregation. |
+| **Dashboard Overview & KPIs** | `frontend/app/dashboard/page.tsx`<br>`GET /api/v1/analytics/overview` | **Implemented** | Segregated to `/dashboard`; period filters (all, today, 7d, 30d, this_month, last_month, custom), 10 core KPIs, PoP comparisons, deterministic insights. |
 | **Sales Analytics Suite** | `frontend/app/analytics/page.tsx`<br>`GET /api/v1/analytics/*` | **Implemented** | Time-series trends (daily/weekly/monthly), category/sub-category contributions, product rankings, and transaction explorer table. |
 | **Dataset Ingestion & Preview** | `frontend/app/data/page.tsx`<br>`GET /api/v1/data/preview` | **Implemented** | CSV drag-and-drop, atomic replacement, schema types, date coverage span, missing value audit, and sample 10 rows. |
 | **Forecast Lab & Model Selection** | `frontend/app/forecast/page.tsx`<br>`POST /api/v1/ml/analyze` | **Implemented** | Target Name selector, Option A (Selected Date) vs. Option B (Date Range), walk-forward validation (snaive vs ARIMA), 1-click report. |

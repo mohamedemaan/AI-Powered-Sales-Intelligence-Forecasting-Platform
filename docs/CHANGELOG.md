@@ -5,6 +5,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.9.0] - 2026-10-26
+
+### Added & Enhanced
+- **SalesMind AI Animated Welcome Flow** ([`frontend/app/page.tsx`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/frontend/app/page.tsx)):
+  - Built enterprise-grade animated welcome page on root route (`/`) replacing direct dashboard drop.
+  - Implemented 7-stage timed animation sequence: ambient cyber grid, connected data nodes, live SVG telemetry line chart with confidence bands, brand reveal, gradient heading, value proposition, and interactive CTAs.
+  - Hardware-accelerated CSS animations (`pulseGlow`, `floatCard`, `drawPath`) with `@media (prefers-reduced-motion: reduce)` support and zero heavy external animation dependencies.
+- **Route Segregation & Smart App Shell** ([`frontend/components/layout/AppShell.tsx`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/frontend/components/layout/AppShell.tsx), [`frontend/app/layout.tsx`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/frontend/app/layout.tsx)):
+  - Moved full Overview dashboard from `/` to [`frontend/app/dashboard/page.tsx`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/frontend/app/dashboard/page.tsx).
+  - Created `<AppShell>` client-side wrapper that conditionally isolates public routes (`/`, `/login`, `/landing`) from dashboard chrome, rendering the sidebar exclusively on protected routes.
+  - Built-in route guard redirecting unauthenticated users visiting protected endpoints to `/login`.
+- **Enhanced Authentication & Session UI** ([`frontend/app/login/page.tsx`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/frontend/app/login/page.tsx)):
+  - Dedicated tabs for Sign In and Create Account supporting `?mode=login` and `?mode=register` query parameters.
+  - Active session detection card displaying logged-in role, active status, tenant ID, and 1-click **Launch Dashboard** button.
+  - Navigation links back to Welcome Page (`/`).
+- **Production Build & Script Resilience** ([`frontend/package.json`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/frontend/package.json)):
+  - Updated npm build and dev scripts to execute node binaries directly, eliminating Windows ampersand path-splitting errors on folders containing `&`.
+  - Resolved TypeScript file transfer typing in [`frontend/app/data/page.tsx`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/frontend/app/data/page.tsx).
+  - Verified 100% production build pass across all 19 static and dynamic routes.
+  - Executed and verified all 43 backend Pytest tests with 100% pass rate.
+
+---
+
 ## [2.8.0] - 2026-10-26
 
 ### Added & Integrated
