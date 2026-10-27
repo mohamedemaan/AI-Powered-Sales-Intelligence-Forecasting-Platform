@@ -34,6 +34,23 @@ def format_date_safe(val: Any) -> Optional[str]:
     s = str(val).strip()
     return s[:10] if len(s) >= 10 else s
 
+def normalize_wape(val: Optional[float]) -> Optional[float]:
+    """
+    Normalizes WAPE to a percentage between 0.0% and 100.0%.
+    Handles both unit fractions (e.g. 0.452 -> 45.2%) and percentage values (e.g. 45.2 -> 45.2%).
+    """
+    if val is None:
+        return None
+    try:
+        f_val = float(val)
+        if f_val <= 1.5:
+            pct = f_val * 100.0
+        else:
+            pct = f_val
+        return round(max(0.0, min(100.0, pct)), 1)
+    except (ValueError, TypeError):
+        return None
+
 def get_period_dates(db: Session, period: str = "all", start_date: Optional[str] = None, end_date: Optional[str] = None, tenant_id: Optional[Any] = None):
     """
     Determines the current date window and prior equivalent window based on temporal grounding.
@@ -198,16 +215,70 @@ def get_overview_data(
         skus_query = skus_query.filter(RawSalesData.tenant_id == tenant_id)
     active_skus = skus_query.scalar() or 0
 
-    # Model accuracy
-    run_query = db.query(ModelRun).filter(ModelRun.wape != None)
+    # Model accuracy & WAPE
+    latest_run = None
     if tenant_id:
-        run_query = run_query.filter(ModelRun.tenant_id == tenant_id)
-    latest_run = run_query.order_by(ModelRun.created_at.desc()).first()
-    model_accuracy = (
-        round((1.0 - latest_run.wape) * 100, 1)
-        if (latest_run and latest_run.wape is not None and 0.0 <= latest_run.wape <= 1.0)
-        else None
-    )
+        latest_run = db.query(ModelRun).filter(
+            ModelRun.tenant_id == tenant_id,
+            ModelRun.wape != None
+        ).order_by(ModelRun.created_at.desc()).first()
+
+    if not latest_run:
+        # Fallback to general or legacy model runs
+        latest_run = db.query(ModelRun).filter(
+            ModelRun.wape != None
+        ).order_by(ModelRun.created_at.desc()).first()
+
+    # If no runs exist at all, but we have sufficient sales records, auto-evaluate baseline walk-forward benchmark
+    if not latest_run and total_records >= 5:
+        try:
+            from app.pipelines.etl import extract_for_features
+            from app.features.engineering import generate_features
+            from app.ml.baseline import BaselineModel
+            from app.ml.evaluation import evaluate_metrics
+            import numpy as np
+            import pandas as pd
+
+            df_train = extract_for_features(db, None, tenant_id=tenant_id)
+            if not df_train.empty and len(df_train) >= 5:
+                df_train['date'] = pd.to_datetime(df_train['date'])
+                df_train = df_train.groupby('date', as_index=False).agg({'units_sold': 'sum'}).sort_values('date').reset_index(drop=True)
+                df_feat = generate_features(df_train)
+                test_size = 7 if len(df_feat) >= 14 else max(1, min(len(df_feat) // 3, 3))
+                tr = df_feat.iloc[:-test_size]
+                te = df_feat.iloc[-test_size:]
+                if len(tr) > 0 and len(te) > 0:
+                    base = BaselineModel(method='snaive', window=min(7, len(tr)))
+                    base.fit(tr)
+                    preds = base.predict(len(te))
+                    metrics = evaluate_metrics(te['units_sold'].values, np.array(preds))
+                    w_val = metrics.get('wape')
+                    mae_val = metrics.get('mae')
+                    rmse_val = metrics.get('rmse')
+                    if w_val is not None and not np.isnan(w_val) and not np.isinf(w_val):
+                        norm_w = round(float(w_val) * 100, 1) if float(w_val) <= 1.5 else round(float(w_val), 1)
+                        latest_run = ModelRun(
+                            tenant_id=tenant_id,
+                            model_name="BASELINE",
+                            model_version="BASELINE",
+                            status="SUCCESS",
+                            sku="ALL",
+                            mae=round(float(mae_val), 2) if mae_val is not None else None,
+                            rmse=round(float(rmse_val), 2) if rmse_val is not None else None,
+                            wape=norm_w
+                        )
+                        db.add(latest_run)
+                        db.commit()
+                        db.refresh(latest_run)
+        except Exception as e:
+            logger.warning(f"Could not auto-evaluate baseline forecast accuracy: {e}")
+
+    model_accuracy = None
+    model_wape = None
+    if latest_run and latest_run.wape is not None:
+        model_wape = normalize_wape(latest_run.wape)
+        if model_wape is not None:
+            model_accuracy = round(max(0.0, min(100.0, 100.0 - model_wape)), 1)
 
     # Anomaly count in window
     from app.ml.anomaly import detect_anomalies
@@ -273,6 +344,7 @@ def get_overview_data(
         "active_predictions": active_skus,
         "anomalies_detected": anomalies_count,
         "model_accuracy": model_accuracy,
+        "model_wape": model_wape,
         "forecasted_revenue": forecasted_revenue,
         "period": period,
         "date_range": {

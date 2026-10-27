@@ -77,6 +77,9 @@ export default function DashboardOverview() {
   const modelAccuracy = overview?.model_accuracy != null
     ? `${overview.model_accuracy}%`
     : '--'
+  const modelWape = overview?.model_wape != null
+    ? `${overview.model_wape}%`
+    : null
 
   const forecastPoints = Array.isArray(data?.forecast) ? data.forecast : []
   const hasForecast = forecastPoints.length > 0
@@ -288,16 +291,23 @@ export default function DashboardOverview() {
         <div className="bg-surface p-5 rounded-xl border border-slate-700/80 flex items-center justify-between">
           <div>
             <span className="text-xs text-slate-400 font-medium block">Forecasting Evaluation (WAPE)</span>
-            <span className="text-2xl font-bold text-white mt-1 block">
-              {isLoading ? '...' : modelAccuracy}
-            </span>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span className="text-2xl font-bold text-white block">
+                {isLoading ? '...' : (modelWape ? `${modelWape} WAPE` : modelAccuracy)}
+              </span>
+              {modelAccuracy !== '--' && (
+                <span className="text-xs font-mono text-emerald-400 font-semibold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                  {modelAccuracy} Accuracy
+                </span>
+              )}
+            </div>
             <p className="text-xs text-slate-400 mt-1">
               Rolling walk-forward cross-validation accuracy on test partition.
             </p>
           </div>
           <Link
             href="/model-health"
-            className="text-xs text-primary font-semibold hover:underline border border-primary/20 bg-primary/10 px-3 py-1.5 rounded-lg"
+            className="text-xs text-primary font-semibold hover:underline border border-primary/20 bg-primary/10 px-3 py-1.5 rounded-lg shrink-0"
           >
             Model Health &rarr;
           </Link>
