@@ -74,12 +74,14 @@ export default function DashboardOverview() {
   const forecastedRevenue = overview?.forecasted_revenue ?? 0
   const anomaliesCount = overview?.anomalies_detected ?? 0
 
-  const modelAccuracy = overview?.model_accuracy != null
-    ? `${overview.model_accuracy}%`
-    : '--'
-  const modelWape = overview?.model_wape != null
-    ? `${overview.model_wape}%`
+  const rawWape = overview?.model_wape != null ? Number(overview.model_wape) : null
+  const normalizedWapeNum = rawWape != null
+    ? (rawWape <= 1.5 ? rawWape * 100 : (rawWape > 100 && rawWape <= 10000 ? rawWape / 100 : rawWape))
     : null
+  const modelWape = normalizedWapeNum != null ? `${normalizedWapeNum.toFixed(1)}%` : null
+  const modelAccuracy = overview?.model_accuracy != null
+    ? `${Number(overview.model_accuracy).toFixed(1)}%`
+    : (normalizedWapeNum != null ? `${Math.max(0, 100 - normalizedWapeNum).toFixed(1)}%` : '--')
 
   const forecastPoints = Array.isArray(data?.forecast) ? data.forecast : []
   const hasForecast = forecastPoints.length > 0

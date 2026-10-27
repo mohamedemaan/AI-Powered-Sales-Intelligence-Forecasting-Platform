@@ -26,6 +26,25 @@ export const useSalesData = (params?: OverviewParams) => {
         api.get("/api/v1/analytics/overview", { params: queryParams }),
         api.get("/api/v1/analytics/forecast", { params: sku ? { sku } : undefined })
       ]);
+
+      // If overview does not contain model evaluation metrics yet, pull from model-health telemetry
+      if (overviewRes.data && overviewRes.data.model_wape == null) {
+        try {
+          const healthRes = await api.get("/api/v1/analytics/model-health");
+          if (healthRes.data) {
+            const hwape = healthRes.data.avg_wape ?? healthRes.data.wape ?? healthRes.data.latest_run?.wape;
+            if (hwape != null) {
+              const numWape = Number(hwape);
+              const normalizedWape = numWape <= 1.5 ? numWape * 100 : (numWape > 100 && numWape <= 10000 ? numWape / 100 : numWape);
+              overviewRes.data.model_wape = Math.round(normalizedWape * 10) / 10;
+              overviewRes.data.model_accuracy = Math.round(Math.max(0, 100 - overviewRes.data.model_wape) * 10) / 10;
+            }
+          }
+        } catch {
+          // Fallback silently if model-health unavailable
+        }
+      }
+
       return {
         overview: overviewRes.data,
         forecast: forecastRes.data

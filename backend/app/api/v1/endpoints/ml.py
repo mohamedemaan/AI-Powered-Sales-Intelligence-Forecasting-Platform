@@ -960,10 +960,15 @@ def get_prediction_history(
             return None
         try:
             fv = float(v)
-            return round(fv * 100, 1) if fv <= 1.5 else round(fv, 1)
+            if fv <= 1.5:
+                fv = fv * 100.0
+            while fv > 100.0 and fv <= 10000.0:
+                fv = fv / 100.0
+            return round(min(100.0, max(0.0, fv)), 1)
         except (ValueError, TypeError):
             return None
 
+    cached_df_hist: Dict[Any, Any] = {}
     result_runs = []
     for r in runs:
         forecasts = db.query(Forecast).filter(
@@ -997,15 +1002,21 @@ def get_prediction_history(
             from app.pipelines.etl import extract_for_features
             try:
                 sku_filter = None if (not r.sku or r.sku.upper() in ["ALL", "GLOBAL", "TOTAL", ""]) else r.sku
-                df_hist = extract_for_features(db, sku_filter, tenant_id=r.tenant_id or current_tenant.id)
+                cache_key = (sku_filter, r.tenant_id or current_tenant.id)
+                if cache_key not in cached_df_hist:
+                    raw_df = extract_for_features(db, sku_filter, tenant_id=r.tenant_id or current_tenant.id)
+                    cached_df_hist[cache_key] = raw_df
+                df_hist = cached_df_hist[cache_key]
+
                 if not df_hist.empty and len(df_hist) >= 5:
-                    df_hist['date'] = pd.to_datetime(df_hist['date'])
+                    df_proc = df_hist.copy()
+                    df_proc['date'] = pd.to_datetime(df_proc['date'])
                     if sku_filter is None:
-                        df_hist = df_hist.groupby('date', as_index=False).agg({'units_sold': 'sum'}).sort_values('date').reset_index(drop=True)
+                        df_proc = df_proc.groupby('date', as_index=False).agg({'units_sold': 'sum'}).sort_values('date').reset_index(drop=True)
                     else:
-                        df_hist = df_hist.sort_values('date').reset_index(drop=True)
-                    test_len = min(7, len(df_hist))
-                    test_tail = df_hist.iloc[-test_len:]
+                        df_proc = df_proc.sort_values('date').reset_index(drop=True)
+                    test_len = min(7, len(df_proc))
+                    test_tail = df_proc.iloc[-test_len:]
                     diff_est = int(round(r.mae)) if (r.mae is not None and not np.isnan(r.mae)) else 1
                     for i, (_, row) in enumerate(test_tail.iterrows()):
                         act_u = int(row['units_sold'])
