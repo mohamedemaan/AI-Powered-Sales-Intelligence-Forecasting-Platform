@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import api from '../../lib/api'
@@ -40,6 +40,12 @@ export default function ModelHealthPage() {
   })
 
   const runs = historyData?.runs || []
+
+  useEffect(() => {
+    if (runs.length > 0 && !selectedRun) {
+      setSelectedRun(runs[0])
+    }
+  }, [runs, selectedRun])
 
   const handleRunEvaluation = async () => {
     setIsEvaluating(true)
@@ -351,7 +357,7 @@ export default function ModelHealthPage() {
                       </div>
                       <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2">
                         <span>Horizon: {r.predictions_count} days</span>
-                        {r.metrics?.wape && <span>WAPE: {r.metrics.wape}%</span>}
+                        {r.metrics?.wape != null && <span>WAPE: {r.metrics.wape}%</span>}
                       </div>
                       <div className="text-[10px] text-slate-500 mt-1 font-mono">
                         {r.created_at?.slice(0, 19).replace('T', ' ')}
@@ -373,12 +379,17 @@ export default function ModelHealthPage() {
                         <span className="text-[11px] text-slate-400 font-mono">Run ID: {selectedRun.run_id}</span>
                       </div>
                       <div className="flex items-center gap-2 text-xs">
-                        {selectedRun.metrics?.mae && (
+                        {selectedRun.metrics?.wape != null && (
+                          <span className="bg-primary/20 text-primary border border-primary/30 px-2.5 py-1 rounded font-medium">
+                            WAPE: {selectedRun.metrics.wape}%
+                          </span>
+                        )}
+                        {selectedRun.metrics?.mae != null && (
                           <span className="bg-slate-800 px-2.5 py-1 rounded text-slate-300">
                             MAE: {selectedRun.metrics.mae}
                           </span>
                         )}
-                        {selectedRun.metrics?.rmse && (
+                        {selectedRun.metrics?.rmse != null && (
                           <span className="bg-slate-800 px-2.5 py-1 rounded text-slate-300">
                             RMSE: {selectedRun.metrics.rmse}
                           </span>
