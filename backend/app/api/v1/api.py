@@ -9,7 +9,8 @@ from app.api.v1.endpoints import (
     analytics,
     intelligence,
     billing,
-    organizations
+    organizations,
+    cleaning
 )
 
 api_router = APIRouter()
@@ -23,3 +24,4 @@ api_router.include_router(ml.router, prefix='/ml', tags=['ml'])
 api_router.include_router(analytics.router, prefix='/analytics', tags=['analytics'])
 api_router.include_router(intelligence.router, prefix='/intelligence', tags=['intelligence'])
 api_router.include_router(billing.router, prefix='/billing', tags=['billing'])
+api_router.include_router(cleaning.router, prefix='/cleaning', tags=['cleaning'])

@@ -25,6 +25,7 @@ import app.models.data
 import app.models.tenant
 import app.models.forecast
 import app.models.audit
+import app.models.dataset
 
 # Create tables for testing/local dev (In production, use Alembic)
 Base.metadata.create_all(bind=engine)
