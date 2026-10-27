@@ -111,5 +111,42 @@ class SubscriptionDetailsResponse(BaseModel):
 class SubscriptionUpgradeRequest(BaseModel):
     plan_tier: str = Field(..., description="Target plan tier: FREE, PRO, BUSINESS, ENTERPRISE")
 
+class AuditLogResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    actor_id: Optional[UUID] = None
+    actor_email: Optional[str] = None
+    event_type: str
+    target_type: Optional[str] = None
+    target_id: Optional[str] = None
+    outcome: str
+    metadata_json: Optional[Dict[str, Any]] = None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class AuditLogListResponse(BaseModel):
+    items: List[AuditLogResponse]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+
+class DetailedUsageResponse(BaseModel):
+    tenant_id: UUID
+    tier: str
+    plan_name: str
+    datasets_count: int
+    dataset_records_count: int
+    estimated_storage_kb: float
+    estimated_storage_mb: float
+    forecasts_total_count: int
+    forecasts_month_count: int
+    forecasts_month_limit: int
+    active_members_count: int
+    total_seats_used: int
+    seats_limit: int
+    billing_cycle_start: str
+
+
 
 

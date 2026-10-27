@@ -16,7 +16,10 @@ import {
   ArrowRight,
   Loader2,
   Check,
-  Building
+  Building,
+  HardDrive,
+  BarChart3,
+  Calendar
 } from 'lucide-react'
 
 interface PlanInfo {
@@ -28,6 +31,23 @@ interface PlanInfo {
   max_datasets: number
   max_forecasts_per_month: number
   features: string[]
+}
+
+interface DetailedUsage {
+  tenant_id: string
+  tier: string
+  plan_name: string
+  datasets_count: number
+  dataset_records_count: number
+  estimated_storage_kb: number
+  estimated_storage_mb: number
+  forecasts_total_count: number
+  forecasts_month_count: number
+  forecasts_month_limit: number
+  active_members_count: number
+  total_seats_used: number
+  seats_limit: number
+  billing_cycle_start: string
 }
 
 interface SubscriptionDetails {
@@ -52,6 +72,7 @@ interface SubscriptionDetails {
 export default function BillingPage() {
   const { user, activeOrg } = useAuth()
   const [subDetails, setSubDetails] = useState<SubscriptionDetails | null>(null)
+  const [detailedUsage, setDetailedUsage] = useState<DetailedUsage | null>(null)
   const [loading, setLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
@@ -64,8 +85,14 @@ export default function BillingPage() {
     try {
       setLoading(true)
       setErrorMsg(null)
-      const res = await api.get(`/api/v1/organizations/${activeOrg.id}/subscription`)
-      setSubDetails(res.data)
+      const [subRes, usageRes] = await Promise.all([
+        api.get(`/api/v1/organizations/${activeOrg.id}/subscription`),
+        api.get(`/api/v1/organizations/${activeOrg.id}/usage`).catch(() => null)
+      ])
+      setSubDetails(subRes.data)
+      if (usageRes?.data) {
+        setDetailedUsage(usageRes.data)
+      }
     } catch (err: any) {
       setErrorMsg(err.response?.data?.detail || 'Failed to load subscription details.')
     } finally {
@@ -260,6 +287,63 @@ export default function BillingPage() {
               </div>
               <span className="text-[10px] text-slate-500 block">
                 {subDetails.usage.datasets_limit - subDetails.usage.datasets_count} dataset slot(s) available
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Verified Resource Footprint & Storage Breakdown */}
+      {detailedUsage && (
+        <div className="bg-surface p-6 rounded-xl border border-slate-700 shadow-sm space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <HardDrive className="w-5 h-5 text-primary" />
+              <h3 className="text-base font-semibold text-white">Verified Resource Footprint & Telemetry</h3>
+            </div>
+            <span className="text-[11px] text-slate-400 font-mono">
+              Cycle Reset: <span className="text-slate-300 font-medium">{detailedUsage.billing_cycle_start}</span>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-1">
+              <span className="text-slate-400 block text-[11px]">Database Records</span>
+              <span className="text-xl font-bold text-white block">
+                {detailedUsage.dataset_records_count.toLocaleString()}
+              </span>
+              <span className="text-[10px] text-slate-500 block">
+                Ingested sales line items
+              </span>
+            </div>
+
+            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-1">
+              <span className="text-slate-400 block text-[11px]">Storage Footprint</span>
+              <span className="text-xl font-bold text-white block">
+                {detailedUsage.estimated_storage_mb.toFixed(2)} MB
+              </span>
+              <span className="text-[10px] text-slate-500 block">
+                {detailedUsage.estimated_storage_kb.toFixed(1)} KB calculated indexing
+              </span>
+            </div>
+
+            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-1">
+              <span className="text-slate-400 block text-[11px]">Lifetime ML Models Run</span>
+              <span className="text-xl font-bold text-emerald-400 block">
+                {detailedUsage.forecasts_total_count.toLocaleString()}
+              </span>
+              <span className="text-[10px] text-slate-500 block">
+                Historical model evaluations
+              </span>
+            </div>
+
+            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-1">
+              <span className="text-slate-400 block text-[11px]">Team Seats Allocated</span>
+              <span className="text-xl font-bold text-purple-400 block">
+                {detailedUsage.total_seats_used} / {detailedUsage.seats_limit}
+              </span>
+              <span className="text-[10px] text-slate-500 block">
+                {detailedUsage.active_members_count} active accounts
               </span>
             </div>
           </div>

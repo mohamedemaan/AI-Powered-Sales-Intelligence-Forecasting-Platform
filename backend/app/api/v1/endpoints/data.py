@@ -5,6 +5,8 @@ from typing import Optional, Any
 from app.api import deps
 from app.models.tenant import Tenant
 from app.models.data import RawSalesData
+from app.models.user import User
+from app.services.audit_service import log_audit_event
 import shutil
 import os
 
@@ -46,6 +48,27 @@ async def upload_data(
     from app.pipelines.etl import process_upload
     try:
         records = process_upload(db, file_path, replace=replace, tenant_id=active_tenant_id)
+
+        # Emit audit event
+        actor_id = getattr(_rbac_check, "user_id", None)
+        actor_email = None
+        if actor_id:
+            u = db.query(User).filter(User.id == actor_id).first()
+            actor_email = u.email if u else None
+
+        log_audit_event(
+            db=db,
+            tenant_id=active_tenant_id,
+            actor_id=actor_id,
+            actor_email=actor_email,
+            event_type="DATASET_UPLOADED",
+            target_type="DATASET",
+            target_id=file.filename,
+            outcome="SUCCESS",
+            metadata={"filename": file.filename, "records_processed": records, "replace": replace}
+        )
+        db.commit()
+
         return {"status": "success", "records_processed": records, "replaced": replace, "organization_id": str(active_tenant_id)}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -104,7 +127,30 @@ def deduplicate_sales_data(
             clean_ur = {k: v for k, v in ur.items() if k in valid_cols and pd.notna(v) and k != 'id'}
             clean_ur['tenant_id'] = current_tenant.id
             db.add(RawSalesData(**clean_ur))
-        db.commit()
+
+    # Emit audit event
+    actor_id = getattr(_rbac_check, "user_id", None)
+    actor_email = None
+    if actor_id:
+        u = db.query(User).filter(User.id == actor_id).first()
+        actor_email = u.email if u else None
+
+    log_audit_event(
+        db=db,
+        tenant_id=current_tenant.id,
+        actor_id=actor_id,
+        actor_email=actor_email,
+        event_type="DATASET_CLEANED",
+        target_type="DATASET",
+        target_id=str(current_tenant.id),
+        outcome="SUCCESS",
+        metadata={
+            "records_before": total_before,
+            "records_removed": records_removed,
+            "total_records": len(df_unique)
+        }
+    )
+    db.commit()
 
     return {
         "status": "success",
@@ -128,6 +174,25 @@ def reset_sales_data(
         db.query(Forecast).filter(Forecast.tenant_id == current_tenant.id).delete()
         db.query(ModelRun).filter(ModelRun.tenant_id == current_tenant.id).delete()
         cleared = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id).delete()
+
+        # Emit audit event
+        actor_id = getattr(_rbac_check, "user_id", None)
+        actor_email = None
+        if actor_id:
+            u = db.query(User).filter(User.id == actor_id).first()
+            actor_email = u.email if u else None
+
+        log_audit_event(
+            db=db,
+            tenant_id=current_tenant.id,
+            actor_id=actor_id,
+            actor_email=actor_email,
+            event_type="DATASET_RESET",
+            target_type="DATASET",
+            target_id=str(current_tenant.id),
+            outcome="SUCCESS",
+            metadata={"records_cleared": cleared}
+        )
         db.commit()
         return {"status": "success", "records_cleared": cleared, "organization_id": str(current_tenant.id)}
     except Exception as e:

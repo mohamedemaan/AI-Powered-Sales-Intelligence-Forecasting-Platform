@@ -280,6 +280,25 @@ export default function ProfilePage() {
             </span>
           </div>
         </div>
+
+        <div className="flex flex-wrap items-center gap-3 pt-2">
+          <Link
+            href="/billing"
+            className="inline-flex items-center gap-1.5 text-xs text-white px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition"
+          >
+            <CreditCard className="w-3.5 h-3.5 text-primary" />
+            Subscription & Usage Telemetry
+          </Link>
+          {(activeOrg?.role === 'OWNER' || activeOrg?.role === 'ADMIN') && (
+            <Link
+              href="/audit"
+              className="inline-flex items-center gap-1.5 text-xs text-white px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              Organization Audit Logs
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Team Members & Collaboration Section */}

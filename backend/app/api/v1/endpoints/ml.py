@@ -12,6 +12,8 @@ from app.api import deps
 from app.api.deps import get_db
 from app.models.tenant import Tenant
 from app.models.data import RawSalesData
+from app.models.user import User
+from app.services.audit_service import log_audit_event
 from app.pipelines.etl import extract_for_features
 from app.features.engineering import generate_features
 from app.ml.baseline import BaselineModel
@@ -271,6 +273,31 @@ def train_and_select_models(
         wape=best_metrics.get('wape'),
         tenant_id=current_tenant.id
     )
+
+    # Emit audit event
+    actor_id = getattr(_rbac_check, "user_id", None)
+    actor_email = None
+    if actor_id:
+        u = db.query(User).filter(User.id == actor_id).first()
+        actor_email = u.email if u else None
+
+    log_audit_event(
+        db=db,
+        tenant_id=current_tenant.id,
+        actor_id=actor_id,
+        actor_email=actor_email,
+        event_type="FORECAST_GENERATED",
+        target_type="FORECAST",
+        target_id=target_sku,
+        outcome="SUCCESS",
+        metadata={
+            "sku": target_sku,
+            "best_model": best_model,
+            "forecast_days": forecast_days,
+            "mae": best_metrics.get("mae")
+        }
+    )
+    db.commit()
     
     return {
         "status": "success",

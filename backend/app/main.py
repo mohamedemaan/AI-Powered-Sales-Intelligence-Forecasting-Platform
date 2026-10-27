@@ -24,6 +24,7 @@ import app.models.order
 import app.models.data
 import app.models.tenant
 import app.models.forecast
+import app.models.audit
 
 # Create tables for testing/local dev (In production, use Alembic)
 Base.metadata.create_all(bind=engine)
@@ -97,6 +98,14 @@ if str(engine.url).startswith("sqlite"):
                 for col_name, col_type in [("token_hash", "VARCHAR(64)"), ("status", "VARCHAR(50)"), ("expires_at", "DATETIME"), ("accepted_at", "DATETIME")]:
                     if col_name not in inv_cols:
                         conn.exec_driver_sql(f"ALTER TABLE tenant_invitations ADD COLUMN {col_name} {col_type}")
+
+            # audit_logs table
+            cursor_audit = conn.exec_driver_sql("PRAGMA table_info(audit_logs)")
+            audit_cols = [row[1] for row in cursor_audit.fetchall()]
+            if audit_cols:
+                for col_name, col_type in [("actor_email", "VARCHAR(255)"), ("ip_address", "VARCHAR(50)"), ("metadata_json", "JSON")]:
+                    if col_name not in audit_cols:
+                        conn.exec_driver_sql(f"ALTER TABLE audit_logs ADD COLUMN {col_name} {col_type}")
 
             # Safe zero-data-loss backfill for existing single-user data
             import uuid

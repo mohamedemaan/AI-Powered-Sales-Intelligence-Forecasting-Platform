@@ -25,8 +25,15 @@ from app.schemas.organization import (
     PlanTierInfo,
     SubscriptionUsage,
     SubscriptionDetailsResponse,
-    SubscriptionUpgradeRequest
+    SubscriptionUpgradeRequest,
+    AuditLogResponse,
+    AuditLogListResponse,
+    DetailedUsageResponse
 )
+from app.models.audit import AuditLog
+from app.models.data import RawSalesData
+from app.models.forecast import ModelRun
+from app.services.audit_service import log_audit_event
 from app.core.plans import get_plan_config, get_tenant_usage, PLANS_CONFIG
 
 router = APIRouter()
@@ -74,6 +81,20 @@ def create_organization(
 
     # Set as active tenant for user
     current_user.tenant_id = tenant.id
+    db.flush()
+
+    log_audit_event(
+        db=db,
+        tenant_id=tenant.id,
+        actor_id=current_user.id,
+        actor_email=current_user.email,
+        event_type="WORKSPACE_CREATED",
+        target_type="WORKSPACE",
+        target_id=str(tenant.id),
+        outcome="SUCCESS",
+        metadata={"name": tenant.name, "slug": tenant.slug}
+    )
+
     db.commit()
     db.refresh(tenant)
 
@@ -236,6 +257,18 @@ def update_organization(
 
     if org_in.metadata_json is not None:
         tenant.metadata_json = org_in.metadata_json
+
+    log_audit_event(
+        db=db,
+        tenant_id=tenant.id,
+        actor_id=current_user.id,
+        actor_email=current_user.email,
+        event_type="WORKSPACE_SETTINGS_UPDATED",
+        target_type="WORKSPACE",
+        target_id=str(tenant.id),
+        outcome="SUCCESS",
+        metadata={"name": tenant.name, "slug": tenant.slug}
+    )
 
     db.commit()
     db.refresh(tenant)
@@ -431,6 +464,19 @@ def accept_invitation(
 
     # Switch active context to joined workspace
     current_user.tenant_id = tenant.id
+
+    log_audit_event(
+        db=db,
+        tenant_id=tenant.id,
+        actor_id=current_user.id,
+        actor_email=current_user.email,
+        event_type="INVITATION_ACCEPTED",
+        target_type="INVITATION",
+        target_id=str(invitation.id),
+        outcome="SUCCESS",
+        metadata={"role": invitation.role, "invited_email": invitation.email}
+    )
+
     db.commit()
 
     m_count = db.query(func.count(TenantMember.id)).filter(TenantMember.tenant_id == tenant.id).scalar() or 1
@@ -585,7 +631,21 @@ def update_member_role(
                 detail="Cannot demote the last organization owner. Transfer ownership first."
             )
 
+    old_role = target_mem.role
     target_mem.role = new_role
+
+    log_audit_event(
+        db=db,
+        tenant_id=org_id,
+        actor_id=current_user.id,
+        actor_email=current_user.email,
+        event_type="MEMBER_ROLE_UPDATED",
+        target_type="MEMBER",
+        target_id=str(user_id),
+        outcome="SUCCESS",
+        metadata={"old_role": old_role, "new_role": new_role}
+    )
+
     db.commit()
     db.refresh(target_mem)
 
@@ -640,14 +700,28 @@ def remove_organization_member(
                 detail="Cannot remove the last organization owner. Please appoint another owner first."
             )
 
-    db.delete(target_mem)
-
     # If the removed member is currently active in this workspace, self-heal active workspace
     target_user = db.query(User).filter(User.id == user_id).first()
+    target_email = target_user.email if target_user else None
+
+    db.delete(target_mem)
+
     if target_user and target_user.tenant_id == org_id:
         # Find any other membership or reset to null
         other_mem = db.query(TenantMember).filter(TenantMember.user_id == user_id).first()
         target_user.tenant_id = other_mem.tenant_id if other_mem else None
+
+    log_audit_event(
+        db=db,
+        tenant_id=org_id,
+        actor_id=current_user.id,
+        actor_email=current_user.email,
+        event_type="MEMBER_REMOVED",
+        target_type="MEMBER",
+        target_id=str(user_id),
+        outcome="SUCCESS",
+        metadata={"removed_user_id": str(user_id), "removed_email": target_email}
+    )
 
     db.commit()
 
@@ -782,6 +856,20 @@ def create_organization_invitation(
         expires_at=expires_at
     )
     db.add(invitation)
+    db.flush()
+
+    log_audit_event(
+        db=db,
+        tenant_id=org_id,
+        actor_id=current_user.id,
+        actor_email=current_user.email,
+        event_type="MEMBER_INVITED",
+        target_type="INVITATION",
+        target_id=str(invitation.id),
+        outcome="SUCCESS",
+        metadata={"email": email_clean, "role": role_clean}
+    )
+
     db.commit()
     db.refresh(invitation)
 
@@ -827,6 +915,19 @@ def revoke_organization_invitation(
         )
 
     invitation.status = InvitationStatus.REVOKED.value
+
+    log_audit_event(
+        db=db,
+        tenant_id=org_id,
+        actor_id=current_user.id,
+        actor_email=current_user.email,
+        event_type="INVITATION_REVOKED",
+        target_type="INVITATION",
+        target_id=str(invitation_id),
+        outcome="SUCCESS",
+        metadata={"revoked_email": invitation.email}
+    )
+
     db.commit()
 
     return MemberActionResponse(
@@ -929,9 +1030,23 @@ def upgrade_organization_subscription(
     if not tenant:
         raise HTTPException(status_code=404, detail="Organization workspace not found.")
 
+    old_tier = tenant.subscription_tier or "FREE"
     tenant.subscription_tier = target_tier
     tenant.subscription_status = "ACTIVE"
     tenant.current_period_end = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
+
+    log_audit_event(
+        db=db,
+        tenant_id=org_id,
+        actor_id=current_user.id,
+        actor_email=current_user.email,
+        event_type="PLAN_UPGRADED",
+        target_type="SUBSCRIPTION",
+        target_id=str(org_id),
+        outcome="SUCCESS",
+        metadata={"old_tier": old_tier, "new_tier": target_tier}
+    )
+
     db.commit()
     db.refresh(tenant)
 
@@ -960,10 +1075,123 @@ def cancel_organization_subscription(
         raise HTTPException(status_code=404, detail="Organization workspace not found.")
 
     tenant.subscription_status = "CANCELED"
+
+    log_audit_event(
+        db=db,
+        tenant_id=org_id,
+        actor_id=current_user.id,
+        actor_email=current_user.email,
+        event_type="SUBSCRIPTION_CANCELED",
+        target_type="SUBSCRIPTION",
+        target_id=str(org_id),
+        outcome="SUCCESS",
+        metadata={"status": "CANCELED"}
+    )
+
     db.commit()
 
     return MemberActionResponse(
         status="success",
         message="Subscription has been scheduled for cancellation at the end of the current billing period."
     )
+
+
+# ---------------------------------------------------------------------------
+# Workspace Audit Logs & Usage Telemetry Endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/{org_id}/audit-logs", response_model=AuditLogListResponse)
+def list_organization_audit_logs(
+    org_id: UUID,
+    event_type: Optional[str] = Query(None, description="Filter by event type"),
+    outcome: Optional[str] = Query(None, description="Filter by outcome (SUCCESS or FAILURE)"),
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Returns organization audit logs with filtering and server-side pagination.
+    Restricted strictly to workspace OWNER and ADMIN.
+    """
+    _require_workspace_admin(db, org_id, current_user.id)
+
+    query = db.query(AuditLog).filter(AuditLog.tenant_id == org_id)
+
+    if event_type and event_type.strip() and event_type.strip().upper() != "ALL":
+        query = query.filter(AuditLog.event_type == event_type.strip().upper())
+
+    if outcome and outcome.strip() and outcome.strip().upper() != "ALL":
+        query = query.filter(AuditLog.outcome == outcome.strip().upper())
+
+    total = query.count()
+    total_pages = max(1, (total + limit - 1) // limit)
+    offset = (page - 1) * limit
+
+    items = query.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit).all()
+
+    return AuditLogListResponse(
+        items=items,
+        total=total,
+        page=page,
+        limit=limit,
+        total_pages=total_pages
+    )
+
+
+@router.get("/{org_id}/usage", response_model=DetailedUsageResponse)
+def get_organization_detailed_usage(
+    org_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Returns verified, un-fabricated usage telemetry and resource allocation for the workspace.
+    Available to all authenticated workspace members.
+    """
+    caller_mem = db.query(TenantMember).filter(
+        TenantMember.tenant_id == org_id,
+        TenantMember.user_id == current_user.id
+    ).first()
+
+    if not caller_mem:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: You are not a member of this workspace."
+        )
+
+    tenant = db.query(Tenant).filter(Tenant.id == org_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organization workspace not found.")
+
+    tier = tenant.subscription_tier or "FREE"
+    plan = get_plan_config(tier)
+    usage = get_tenant_usage(db, org_id)
+
+    records_count = db.query(func.count(RawSalesData.id)).filter(RawSalesData.tenant_id == org_id).scalar() or 0
+    # Average byte footprint per row with b-tree indexing in SQLite ~250 bytes
+    storage_bytes = records_count * 250
+    storage_kb = round(storage_bytes / 1024.0, 2)
+    storage_mb = round(storage_bytes / (1024.0 * 1024.0), 3)
+
+    forecasts_total = db.query(func.count(ModelRun.id)).filter(ModelRun.tenant_id == org_id).scalar() or 0
+    cycle_start = datetime.utcnow().replace(day=1).strftime("%Y-%m-%d")
+
+    return DetailedUsageResponse(
+        tenant_id=org_id,
+        tier=tier,
+        plan_name=plan["name"],
+        datasets_count=usage["datasets_count"],
+        dataset_records_count=records_count,
+        estimated_storage_kb=storage_kb,
+        estimated_storage_mb=storage_mb,
+        forecasts_total_count=forecasts_total,
+        forecasts_month_count=usage["forecasts_month_count"],
+        forecasts_month_limit=plan["max_forecasts_per_month"],
+        active_members_count=usage["active_members_count"],
+        total_seats_used=usage["total_seats_used"],
+        seats_limit=plan["max_members"],
+        billing_cycle_start=cycle_start
+    )
+
 

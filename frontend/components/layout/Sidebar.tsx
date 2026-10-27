@@ -27,6 +27,7 @@ const navItems = [
   { href: '/gemini', label: 'Gemini AI' },
   { href: '/reports', label: 'Reports & Exports' },
   { href: '/billing', label: 'Subscription & Plans' },
+  { href: '/audit', label: 'Audit Logs' },
 ]
 
 export function Sidebar() {
