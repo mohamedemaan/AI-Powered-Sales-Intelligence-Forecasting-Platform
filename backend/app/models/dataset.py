@@ -64,3 +64,4 @@ class CleaningAuditLog(BaseModel):
     rows_affected = Column(Integer, default=0, nullable=False)
     status = Column(String(50), default="COMPLETED", nullable=False)  # APPLICABLE, SKIPPED, COMPLETED, WARNING, FAILED, NEEDS_REVIEW
     details_json = Column(Text, nullable=True)
+

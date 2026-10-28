@@ -33,12 +33,26 @@ export default function GeminiPage() {
     setResponse(null)
 
     try {
-      const res = await api.post('/api/v1/analytics/gemini', null, {
-        params: { query, sku: sku || 'ALL' }
-      })
+      const res = await api.post(
+        '/api/v1/analytics/gemini',
+        { query, sku: sku || 'ALL' },
+        {
+          params: { query, sku: sku || 'ALL' },
+          timeout: 60000
+        }
+      )
       setResponse(res.data)
     } catch (err: any) {
-      setErrorMsg(err.response?.data?.detail || 'Failed to reach Gemini Pro backend service. Ensure FastAPI server is running at http://127.0.0.1:8000.')
+      const backendMsg = err.response?.data?.detail || err.response?.data?.answer || err.response?.data?.message
+      if (backendMsg) {
+        setErrorMsg(backendMsg)
+      } else if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        setErrorMsg('Request timed out. Google Gemini is taking longer than expected. Please try again.')
+      } else if (err.message === 'Network Error') {
+        setErrorMsg('Failed to reach FastAPI backend at http://127.0.0.1:8000. Ensure the backend server is running.')
+      } else {
+        setErrorMsg(err.message || 'Failed to reach Gemini Pro backend service.')
+      }
     } finally {
       setIsLoading(false)
     }
@@ -74,8 +88,8 @@ export default function GeminiPage() {
             className="bg-background text-white text-xs px-3 py-1.5 rounded-lg border border-slate-600 focus:outline-none focus:border-primary min-w-[260px]"
           >
             {skuOptions && skuOptions.length > 0 ? (
-              skuOptions.map((opt) => (
-                <option key={opt.sku} value={opt.sku}>
+              skuOptions.map((opt, idx) => (
+                <option key={`${opt.sku}-${idx}`} value={opt.sku}>
                   {opt.label}
                 </option>
               ))

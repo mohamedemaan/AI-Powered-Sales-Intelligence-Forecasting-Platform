@@ -18,6 +18,7 @@ from app.schemas.cleaning import (
     CleaningJobOut
 )
 from app.services.cleaning.ingestion_service import save_and_register_upload
+from app.services.cleaning.engine import run_universal_cleaning_pipeline
 from app.services.audit_service import log_audit_event
 
 logger = logging.getLogger(__name__)
@@ -254,3 +255,194 @@ def delete_dataset_version(
     db.commit()
 
     return {"status": "success", "message": f"Dataset {dataset.name} deleted successfully."}
+
+
+@router.post("/datasets/{dataset_id}/clean")
+def trigger_dataset_cleaning_job(
+    dataset_id: UUID,
+    payload: Optional[CleaningJobCreateRequest] = None,
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_analyst)
+):
+    """
+    Step 1 to 20: Initiates and executes the Universal Data Cleaning & Preprocessing Pipeline
+    on the targeted dataset version. Non-destructive: preserves original raw file and writes
+    the derived cleaned dataset to uploads/tenants/<tenant_id>/cleaned/.
+    """
+    dataset = db.query(DatasetVersion).filter(
+        DatasetVersion.id == dataset_id,
+        DatasetVersion.tenant_id == current_tenant.id
+    ).first()
+
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found in active workspace.")
+
+    user_id = getattr(_rbac_check, "user_id", None)
+    config = payload.pipeline_config if payload else {}
+
+    # Create CleaningJob entry
+    job = CleaningJob(
+        tenant_id=current_tenant.id,
+        dataset_version_id=dataset.id,
+        user_id=user_id,
+        status="PENDING",
+        current_step=0,
+        total_steps=20,
+        pipeline_config_json=json.dumps(config)
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    # Run pipeline
+    summary = run_universal_cleaning_pipeline(
+        db=db,
+        dataset_version=dataset,
+        cleaning_job=job,
+        config=config
+    )
+
+    # Emit audit event
+    actor_email = None
+    if user_id:
+        from app.models.user import User
+        u = db.query(User).filter(User.id == user_id).first()
+        actor_email = u.email if u else None
+
+    log_audit_event(
+        db=db,
+        tenant_id=current_tenant.id,
+        actor_id=user_id,
+        actor_email=actor_email,
+        event_type="DATASET_CLEANING_EXECUTED",
+        target_type="CLEANING_JOB",
+        target_id=str(job.id),
+        outcome=job.status,
+        metadata={"dataset_id": str(dataset.id), "filename": dataset.original_filename}
+    )
+    db.commit()
+
+    return {
+        "status": "success",
+        "job_id": str(job.id),
+        "dataset_id": str(dataset.id),
+        "result": summary
+    }
+
+
+@router.get("/jobs/{job_id}", response_model=CleaningJobOut)
+def get_cleaning_job_status(
+    job_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_viewer)
+):
+    """
+    Returns the execution status, progress step, and scorecard validation report of a cleaning job.
+    """
+    job = db.query(CleaningJob).filter(
+        CleaningJob.id == job_id,
+        CleaningJob.tenant_id == current_tenant.id
+    ).first()
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Cleaning job not found.")
+
+    report = None
+    if job.validation_report_json:
+        try:
+            report = json.loads(job.validation_report_json)
+        except Exception:
+            report = None
+
+    return CleaningJobOut(
+        id=str(job.id),
+        dataset_version_id=str(job.dataset_version_id),
+        tenant_id=str(job.tenant_id),
+        status=job.status,
+        current_step=job.current_step,
+        total_steps=job.total_steps,
+        error_message=job.error_message,
+        validation_report=report,
+        created_at=job.created_at.isoformat() if job.created_at else None,
+        completed_at=job.completed_at.isoformat() if job.completed_at else None
+    )
+
+
+@router.get("/jobs/{job_id}/logs")
+def get_cleaning_job_audit_logs(
+    job_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_viewer)
+):
+    """
+    Returns step-level audit logs for all 20 canonical cleaning steps executed in the job.
+    """
+    job = db.query(CleaningJob).filter(
+        CleaningJob.id == job_id,
+        CleaningJob.tenant_id == current_tenant.id
+    ).first()
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Cleaning job not found.")
+
+    logs = db.query(CleaningAuditLog).filter(
+        CleaningAuditLog.cleaning_job_id == job.id
+    ).order_by(CleaningAuditLog.step_number.asc()).all()
+
+    items = []
+    for l in logs:
+        details = {}
+        if l.details_json:
+            try:
+                details = json.loads(l.details_json)
+            except Exception:
+                details = {}
+        items.append({
+            "id": str(l.id),
+            "cleaning_job_id": str(l.cleaning_job_id),
+            "step_number": l.step_number,
+            "step_name": l.step_name,
+            "operation": l.operation,
+            "affected_fields": l.affected_fields,
+            "rows_affected": l.rows_affected,
+            "status": l.status,
+            "details": details,
+            "created_at": l.created_at.isoformat() if l.created_at else None
+        })
+
+    return {"total_logs": len(items), "logs": items}
+
+
+@router.get("/datasets/{dataset_id}/download-cleaned")
+def download_cleaned_dataset(
+    dataset_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_viewer)
+):
+    """
+    Streams the derived cleaned dataset for user download.
+    Enforces workspace isolation and verifies file existence.
+    """
+    dataset = db.query(DatasetVersion).filter(
+        DatasetVersion.id == dataset_id,
+        DatasetVersion.tenant_id == current_tenant.id
+    ).first()
+
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found in active workspace.")
+
+    if not dataset.cleaned_file_path or not os.path.exists(dataset.cleaned_file_path):
+        raise HTTPException(status_code=404, detail="Cleaned file is not available. Please run data cleaning first.")
+
+    base_name = os.path.splitext(dataset.original_filename)[0]
+    cleaned_dl_name = f"cleaned_{base_name}.csv"
+
+    return FileResponse(
+        path=dataset.cleaned_file_path,
+        filename=cleaned_dl_name,
+        media_type="text/csv"
+    )

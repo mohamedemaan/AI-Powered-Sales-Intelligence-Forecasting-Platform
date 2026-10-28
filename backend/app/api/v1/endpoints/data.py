@@ -397,8 +397,10 @@ def get_available_products(
     for r in rows:
         name_occurrences[r.p_name] = name_occurrences.get(r.p_name, 0) + 1
         
+    seen_skus = set()
     result = []
     if not search and total_count > 0:
+        seen_skus.add("ALL")
         result.append({
             "sku": "ALL",
             "product_name": "All Products (Global Aggregate)",
@@ -409,6 +411,10 @@ def get_available_products(
         })
         
     for r in rows:
+        if r.sku in seen_skus:
+            continue
+        seen_skus.add(r.sku)
+        
         is_dup_name = name_occurrences.get(r.p_name, 0) > 1
         if is_dup_name and r.p_name != r.sku:
             label = f"{r.p_name} [SKU: {r.sku}] ({r.count} records)"

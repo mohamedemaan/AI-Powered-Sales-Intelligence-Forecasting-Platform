@@ -36,9 +36,10 @@ class Settings(BaseSettings):
             if db_url.startswith("postgres://"):
                 db_url = db_url.replace("postgres://", "postgresql://", 1)
             return db_url
-        # 2. SQLite fallback for local dev
+        # 2. SQLite fallback for local dev (always resolve to backend/sql_app.db)
         if os.getenv("USE_SQLITE", "true").lower() == "true":
-            return "sqlite:///./sql_app.db"
+            sqlite_path = (_backend_dir / "sql_app.db").resolve().as_posix()
+            return f"sqlite:///{sqlite_path}"
         # 3. Compose individual vars
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}/{self.POSTGRES_DB}"
 
