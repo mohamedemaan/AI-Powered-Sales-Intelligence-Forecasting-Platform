@@ -1,8 +1,9 @@
 # Sales Intelligence Platform
 # API Specification & Reference
 
-**Version:** 2.0  
+**Version:** 3.0  
 **Planning Year:** 2026  
+**Last Synchronized:** October 30, 2026  
 **Status:** Verified & Synchronized Specification  
 **Base URL:** `http://127.0.0.1:8000` (Local) / `/api/v1` (Production)  
 **Interactive Docs:** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) (Swagger UI) / [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc) (ReDoc)
@@ -555,6 +556,192 @@ Implemented in [`backend/app/main.py`](file:///c:/Users/EMAAN/OneDrive/Documents
 
 #### `GET /`
 - **Response (`200 OK`)**: `{"message": "Welcome to AI-Powered Sales Intelligence Platform API"}`.
+
+---
+
+### 2.6 Universal Data Cleaning & Preprocessing Router (`/api/v1/cleaning`)
+Implemented in [`backend/app/api/v1/endpoints/cleaning.py`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/backend/app/api/v1/endpoints/cleaning.py).
+
+#### `POST /api/v1/cleaning/upload`
+- **Purpose**: Uploads and preserves original raw files (CSV, TSV, XLSX, Parquet, JSON, Media) with SHA-256 checksums in tenant-isolated vaults.
+- **Form Data**: `file` (UploadFile), `dataset_name` (string, optional).
+- **Response (`200 OK`)**: `CleaningUploadResponse` with `dataset_id`, `checksum_sha256`, dimensions, and initial profiling.
+
+#### `GET /api/v1/cleaning/datasets`
+- **Purpose**: Lists registered dataset versions for the active workspace with metadata, status, and dimensions.
+
+#### `GET /api/v1/cleaning/datasets/{id}/download-original`
+- **Purpose**: Streams the original unmodified file backup directly from tenant storage.
+
+#### `POST /api/v1/cleaning/datasets/{id}/clean`
+- **Purpose**: Executes the universal 20-step cleaning pipeline (deduplication, imputation, bound capping, date normalization, schema casting, quality scorecard).
+- **Request Body**: `{"pipeline_config": {"imputation_strategy": "mean", "outlier_strategy": "iqr", "deduplication_strict": true}}`.
+- **Response (`200 OK`)**: `{"status": "success", "job_id": "...", "result": {...}}`.
+
+#### `GET /api/v1/cleaning/datasets/{id}/preview`
+- **Purpose**: Returns side-by-side preview rows of raw vs. cleaned dataset for verification.
+
+#### `GET /api/v1/cleaning/datasets/{id}/export?format={csv|tsv|xlsx|parquet|json|jsonl}`
+- **Purpose**: Streams genuine converted tabular files in the user's requested format with auto-styled Excel formatting and Parquet compression.
+
+#### `GET /api/v1/cleaning/jobs/{id}/report?format={pdf|xlsx|json}`
+- **Purpose**: Downloads comprehensive cleaning & quality audit reports (Executive PDF, Multi-sheet Excel workbook, or JSON audit log).
+
+#### `POST /api/v1/cleaning/datasets/{id}/activate`
+- **Purpose**: Promotes verified cleaned dataset into `raw_sales_data`, reconciling transactions into the live sales ledger for downstream analytics and ML models.
+
+---
+
+### 2.7 Knowledge Assistant & RAG Router (`/api/v1/rag`)
+Implemented in [`backend/app/api/v1/endpoints/rag.py`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/backend/app/api/v1/endpoints/rag.py).
+
+#### `POST /api/v1/rag/documents`
+- **Purpose**: Multi-format document ingestion (PDF, DOCX, TXT, MD, CSV, TSV, JSON) into tenant-isolated Knowledge Vault with structure-aware chunking and 768-dim vector embeddings.
+- **Form Data**: `file` (UploadFile), `title` (string, optional), `category` (string, optional).
+- **Headers**: `Authorization: Bearer <token>`, `X-Organization-ID: <tenant_id>`.
+- **Response (`201 Created`)**:
+  ```json
+  {
+    "document_id": "67b864a7-8f52-474c-81bc-569d6c97a5b1",
+    "filename": "Q3_Enterprise_Sales_Playbook.pdf",
+    "title": "Q3 Enterprise Sales Playbook",
+    "file_type": "pdf",
+    "total_chunks": 14,
+    "status": "ready"
+  }
+  ```
+
+#### `GET /api/v1/rag/documents`
+- **Purpose**: Retrieves all ingested documents within the authenticated tenant workspace.
+- **Response (`200 OK`)**: List of `RagDocumentResponse` items with status, chunk counts, and timestamps.
+
+#### `GET /api/v1/rag/documents/{document_id}`
+- **Purpose**: Fetches document detail including its indexed chunks, structural sections, and token counts.
+- **Response (`200 OK`)**: `RagDocumentDetailResponse` containing metadata and ordered chunks.
+
+#### `DELETE /api/v1/rag/documents/{document_id}`
+- **Purpose**: Removes a document and all related chunks from ACID database storage and prunes vectors from the on-disk FAISS index.
+- **Response (`200 OK`)**: `{"status": "deleted", "document_id": "..."}`.
+
+#### `POST /api/v1/rag/documents/{document_id}/reindex`
+- **Purpose**: Re-parses original file, recalculates chunk boundaries, regenerates vector embeddings, and synchronizes the tenant vector index.
+- **Response (`200 OK`)**: Updated `RagDocumentResponse`.
+
+#### `POST /api/v1/rag/chat`
+- **Purpose**: Dual-engine hybrid RAG query. Analyzes question intent (`KNOWLEDGE`, `LEDGER_ANALYTICS`, or `HYBRID`), retrieves semantic document passages, executes exact SQL ledger queries where applicable, and produces grounded responses with structured citations and honesty abstention.
+- **Request Body**:
+  ```json
+  {
+    "query": "What are our high-margin discount guidelines?",
+    "top_k": 4,
+    "threshold": 0.35,
+    "conversation_id": "conv-1234"
+  }
+  ```
+- **Response (`200 OK`)**:
+  ```json
+  {
+    "answer": "According to the Sales Playbook, discounts exceeding 15% require VP approval...",
+    "intent": "KNOWLEDGE",
+    "citations": [
+      {
+        "document_id": "67b864a7-8f52-474c-81bc-569d6c97a5b1",
+        "title": "Q3 Enterprise Sales Playbook",
+        "filename": "Q3_Enterprise_Sales_Playbook.pdf",
+        "section": "Discounting & Margin Governance",
+        "page_number": 3,
+        "score": 0.884,
+        "snippet": "Discounts above 15% strictly mandate VP approval..."
+      }
+    ],
+    "model": "gemini-1.5-pro",
+    "latency_ms": 342.1
+  }
+  ```
+
+#### `GET /api/v1/rag/health`
+- **Purpose**: Reports RAG subsystem health, vector store index engine (`faiss` or `numpy`), active tenant vector count, and Gemini API readiness.
+- **Response (`200 OK`)**:
+  ```json
+  {
+    "status": "healthy",
+    "vector_store": "faiss",
+    "total_vectors": 14,
+    "gemini_api_configured": true,
+    "active_tenant_id": "org_default"
+  }
+  ```
+
+#### `POST /api/v1/rag/seed-sample-knowledge`
+- **Purpose**: Idempotently seeds default enterprise corporate knowledge documents (Sales Playbook, Return/Restocking Fee Policies, and Product Catalog Specifications) into the active tenant workspace.
+- **Headers**: `Authorization: Bearer <token>`, `X-Organization-ID: <tenant_id>`.
+- **Response (`200 OK`)**: `RagDocumentListResponse` with seeded documents and total counts.
+
+---
+
+### 2.8 Multi-Tenant Organizations Router (`/api/v1/organizations`)
+Implemented in [`backend/app/api/v1/endpoints/organizations.py`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/backend/app/api/v1/endpoints/organizations.py).
+
+#### `GET /api/v1/organizations/me`
+- **Purpose**: Returns all organization workspaces where the authenticated user has verified membership, along with active workspace indicator.
+- **Response (`200 OK`)**: List of organization summaries with `id`, `name`, `role`, and `subscription_tier`.
+
+#### `POST /api/v1/organizations`
+- **Purpose**: Creates a new isolated customer organization workspace and sets the calling user as `OWNER`.
+- **Request Body**: `{"name": "Acme Retail Corp", "subdomain": "acme"}`.
+- **Response (`201 Created`)**: Created organization entity.
+
+#### `GET /api/v1/organizations/{id}/members`
+- **Purpose**: Lists all members of the specified organization workspace with their respective roles (`OWNER`, `ADMIN`, `ANALYST`, `VIEWER`).
+- **Response (`200 OK`)**: List of member profiles.
+
+#### `POST /api/v1/organizations/{id}/invitations`
+- **Purpose**: Creates an email invitation token to onboard new team members to a workspace.
+- **Request Body**: `{"email": "colleague@acme.com", "role": "ANALYST"}`.
+- **Response (`201 Created`)**: Invitation record with token hash and expiration.
+
+#### `POST /api/v1/organizations/invitations/{token}/accept`
+- **Purpose**: Validates token hash and links the accepting user to the workspace with the designated role.
+- **Response (`200 OK`)**: `{"status": "accepted", "organization_id": "..."}`.
+
+---
+
+### 2.9 Subscription & Billing Router (`/api/v1/billing`)
+Implemented in [`backend/app/api/v1/endpoints/billing.py`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/backend/app/api/v1/endpoints/billing.py).
+
+#### `GET /api/v1/billing/subscription`
+- **Purpose**: Retrieves current tenant subscription plan, status, feature limits, and quota consumption.
+- **Response (`200 OK`)**:
+  ```json
+  {
+    "tier": "PROFESSIONAL",
+    "status": "ACTIVE",
+    "quotas": {
+      "max_rows": 500000,
+      "max_storage_mb": 1024,
+      "monthly_llm_queries": 5000
+    },
+    "current_usage": {
+      "rows_ingested": 10194,
+      "storage_mb": 42.5,
+      "llm_queries": 128
+    }
+  }
+  ```
+
+#### `POST /api/v1/billing/create-checkout-session`
+- **Purpose**: Creates a Stripe Checkout Session URL for upgrading subscription tier (`STARTER`, `PROFESSIONAL`, `ENTERPRISE`).
+- **Request Body**: `{"tier": "PROFESSIONAL", "interval": "monthly"}`.
+- **Response (`200 OK`)**: `{"checkout_url": "https://checkout.stripe.com/..."}`.
+
+#### `POST /api/v1/billing/customer-portal`
+- **Purpose**: Generates a Stripe Customer Portal session URL for managing payment methods and viewing invoices.
+- **Response (`200 OK`)**: `{"portal_url": "https://billing.stripe.com/..."}`.
+
+#### `POST /api/v1/billing/webhook`
+- **Purpose**: Handles asynchronous Stripe webhook notifications (`checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`).
+- **Headers**: `Stripe-Signature: t=...,v1=...`.
+- **Response (`200 OK`)**: `{"received": true}`.
 
 ---
 

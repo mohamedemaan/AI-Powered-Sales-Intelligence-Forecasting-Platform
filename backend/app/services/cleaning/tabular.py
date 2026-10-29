@@ -190,12 +190,15 @@ def handle_missing_values(
         if missing_count == 0:
             continue
 
-        col_lower = col.lower()
+        col_lower = col.lower().replace(" ", "_").replace("-", "_")
         is_id = any(pat == col_lower or col_lower.endswith(f"_{pat}") for pat in ID_COL_PATTERNS)
 
         # ID guard: do not impute IDs
         if is_id:
-            imputation_log[col] = {"strategy": "preserved_unimputed", "reason": "Identifier/Key field protected"}
+            imputation_info = {"strategy": "preserved_unimputed", "reason": "Identifier/Key field protected"}
+            imputation_log[col] = imputation_info
+            if col_lower != col:
+                imputation_log[col_lower] = imputation_info
             continue
 
         strategy = strategies.get(col)
@@ -258,7 +261,7 @@ def correct_and_standardize_formats(
     for col in df_clean.columns:
         series = df_clean[col]
         # Clean numeric strings ($1,234.50 -> 1234.50)
-        if clean_numeric_strings and series.dtype == 'object':
+        if clean_numeric_strings and (series.dtype == 'object' or pd.api.types.is_string_dtype(series)):
             sample = series.dropna().astype(str).head(20)
             has_currency = sample.str.contains(r'[\$,€,£]').any()
             numeric_like = sample.str.replace(r'[\$,€,£\s]', '', regex=True).str.match(r'^-?\d+(\.\d+)?$').all()
@@ -269,7 +272,7 @@ def correct_and_standardize_formats(
                 continue
 
         # Date parsing
-        if parse_dates and (series.dtype == 'object' or pd.api.types.is_datetime64_any_dtype(series)):
+        if parse_dates and (series.dtype == 'object' or pd.api.types.is_string_dtype(series) or pd.api.types.is_datetime64_any_dtype(series)):
             sample = series.dropna().astype(str).head(15)
             date_like = sum(bool(re.match(r'^\d{2,4}[-/]\d{1,2}[-/]\d{1,4}', v)) for v in sample)
             if len(sample) > 0 and (date_like / len(sample)) >= 0.7:

@@ -1,9 +1,9 @@
 # Sales Intelligence Platform
 # Database Architecture & Schema Specification
 
-**Version:** 2.0  
+**Version:** 3.0  
 **Planning Year:** 2026  
-**Status:** Verified & Synchronized Specification  
+**Last Synchronized:** October 30, 2026  
 **Engines:** SQLite 3 (Local Development) / PostgreSQL 15 (Production Container)  
 **ORM:** SQLAlchemy 2.0  
 **Migration Engine:** Alembic + SQLite Startup Auto-Migrator
@@ -16,183 +16,182 @@ The database layer balances local zero-configuration developer experience with m
 
 - **Development Engine**: SQLite (`backend/sql_app.db`) managed via `sqlite:////sql_app.db`.
 - **Production Engine**: PostgreSQL 15 (`postgresql://postgres:password@db:5432/sales_intel`).
-- **Base Model Standard**: All domain entities inherit from `BaseModel` ([`backend/app/db/base.py`](file:///c:/Users/EMAAN/OneDrive/Documents/GitHub/sales-prediction-dashboards/backend/app/db/base.py)), featuring:
-  - `id`: `VARCHAR(36)` UUID v4 string primary key.
+- **Base Model Standard**: All domain entities inherit from `BaseModel` ([`backend/app/db/base.py`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/backend/app/db/base.py)), featuring:
+  - `id`: `UUID(as_uuid=True)` / `VARCHAR(36)` primary key.
   - `created_at`: `DATETIME` with UTC timezone, initialized via `func.now()`.
   - `updated_at`: `DATETIME` with UTC timezone, updated via `onupdate=func.now()`.
 
 ```mermaid
 erDiagram
-    TENANTS ||--o{ USERS : "has members"
-    TENANTS ||--o{ MODEL_RUNS : "owns"
-    RAW_SALES_DATA }|--|| PRODUCTS : "categorized by"
+    TENANTS ||--o{ TENANT_MEMBERS : "has members"
+    TENANTS ||--o{ TENANT_INVITATIONS : "issues"
+    TENANTS ||--o{ USERS : "contains"
+    TENANTS ||--o{ DATASET_VERSIONS : "owns datasets"
+    TENANTS ||--o{ CLEANING_JOBS : "executes"
+    TENANTS ||--o{ RAG_DOCUMENTS : "indexes"
+    TENANTS ||--o{ RAG_CHUNKS : "stores"
+    TENANTS ||--o{ MODEL_RUNS : "owns runs"
+    TENANTS ||--o{ USAGE_METRICS : "tracks"
+    TENANTS ||--o{ AUDIT_LOGS : "logs"
+    
+    USERS ||--o{ TENANT_MEMBERS : "belongs to"
+    DATASET_VERSIONS ||--o{ CLEANING_JOBS : "cleaned by"
+    CLEANING_JOBS ||--o{ CLEANING_PROVENANCE_LOGS : "records steps"
+    RAG_DOCUMENTS ||--o{ RAG_CHUNKS : "split into"
     MODEL_RUNS ||--o{ FORECASTS : "generates"
-
-    RAW_SALES_DATA {
-        string id PK
-        date date
-        string order_id
-        string sku
-        string product_name
-        string category
-        string sub_category
-        int units_sold
-        decimal price
-        decimal total_sales
-        decimal profit
-        decimal discount_pct
-        int available_stock
-        string status
-    }
-
-    USERS {
-        string id PK
-        string email UK
-        string hashed_password
-        string role
-        boolean is_active
-        string tenant_id FK
-    }
-
-    TENANTS {
-        string id PK
-        string name
-        string subdomain UK
-        string subscription_tier
-    }
-
-    MODEL_RUNS {
-        string id PK
-        string sku
-        string model_version
-        string model_type
-        float mae
-        float rmse
-        float wape
-        string status
-        string tenant_id FK
-    }
-
-    FORECASTS {
-        string id PK
-        string model_run_id FK
-        string sku
-        date date
-        float predicted_units
-        float confidence_lower
-        float confidence_upper
-    }
+    RAW_SALES_DATA }|--|| PRODUCTS : "categorized by"
 ```
 
 ---
 
-## 2. Table Schemas & Column Definitions
+## 2. Table Specifications
 
-### 2.1 `raw_sales_data` Table
-Implemented in [`backend/app/models/data.py`](file:///c:/Users/EMAAN/OneDrive/Documents/GitHub/sales-prediction-dashboards/backend/app/models/data.py). Stores full row-level transactional records.
-
-| Column | Type | Nullable | Indexed | Default | Description |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `id` | `VARCHAR(36)` | **No** | Primary Key | UUID4 | Record unique identifier. |
-| `date` | `DATE` | **No** | **Yes** | None | Order/transaction date. |
-| `order_id` | `VARCHAR(100)` | Yes | **Yes** | None | Customer order / basket ID. |
-| `sku` | `VARCHAR(100)` | **No** | **Yes** | None | Unique merchandise product code. |
-| `product_name` | `VARCHAR(255)` | Yes | **Yes** | None | Human-readable product name. |
-| `category` | `VARCHAR(100)` | Yes | **Yes** | None | Top-level commercial merchandise category. |
-| `sub_category` | `VARCHAR(100)` | Yes | **Yes** | None | Secondary merchandise department. |
-| `units_sold` | `INTEGER` | **No** | No | None | Quantity of units sold in line item. |
-| `price` | `NUMERIC(10,2)`| Yes | No | None | Unit price in USD. |
-| `total_sales` | `NUMERIC(12,2)`| Yes | No | None | Total line-item sales revenue in USD. |
-| `profit` | `NUMERIC(12,2)`| Yes | No | None | Total line-item profit/loss in USD. |
-| `discount_pct` | `NUMERIC(5,2)` | Yes | No | `0.0` | Promotional discount percentage. |
-| `available_stock`| `INTEGER` | Yes | No | `150` | Inventory on-hand level. |
-| `holiday_flag` | `INTEGER` | Yes | No | `0` | Binary indicator for calendar holidays. |
-| `festival_flag`| `INTEGER` | Yes | No | `0` | Binary indicator for promotional festivals. |
-| `status` | `VARCHAR(50)` | Yes | No | `'PENDING'` | Ingestion status (`PENDING`, `PROCESSED`). |
-| `created_at` | `DATETIME` | **No** | No | UTC now | Row creation timestamp. |
-| `updated_at` | `DATETIME` | **No** | No | UTC now | Row modification timestamp. |
-
-### 2.2 `users` & `tenants` Tables
-Implemented in [`backend/app/models/tenant.py`](file:///c:/Users/EMAAN/OneDrive/Documents/GitHub/sales-prediction-dashboards/backend/app/models/tenant.py).
-
-#### `users`
-- `id` (`VARCHAR(36)`, PK)
-- `email` (`VARCHAR(255)`, Unique, Indexed, Not Null)
-- `hashed_password` (`VARCHAR(255)`, Not Null)
-- `role` (`VARCHAR(50)`, Default `'ANALYST'`): Role-Based Access Control (`ADMIN`, `ANALYST`, `MANAGER`).
-- `is_active` (`BOOLEAN`, Default `True`)
-- `tenant_id` (`VARCHAR(36)`, FK `tenants.id`, Nullable)
+### 2.1 Multi-Tenant SaaS Entities
 
 #### `tenants`
-- `id` (`VARCHAR(36)`, PK)
-- `name` (`VARCHAR(255)`, Not Null)
-- `subdomain` (`VARCHAR(100)`, Unique, Nullable)
-- `subscription_tier` (`VARCHAR(50)`, Default `'STARTER'`)
+Tracks isolated customer organizations and workspace boundaries.
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, Not Null | Unique organization identifier |
+| `name` | `VARCHAR(255)` | Not Null | Display name of the organization |
+| `subdomain` | `VARCHAR(100)` | Unique, Nullable | Subdomain alias for workspace |
+| `subscription_tier` | `VARCHAR(50)` | Default `'FREE'` | `'FREE'`, `'STARTER'`, `'PROFESSIONAL'`, `'ENTERPRISE'` |
+| `subscription_status`| `VARCHAR(50)` | Default `'ACTIVE'` | `'ACTIVE'`, `'TRIALING'`, `'PAST_DUE'`, `'CANCELED'` |
+| `owner_id` | `UUID` | FK `users.id`, Nullable | Primary account owner |
+| `created_at` | `DATETIME` | UTC Timestamp | Creation timestamp |
+| `updated_at` | `DATETIME` | UTC Timestamp | Modification timestamp |
 
-### 2.3 `model_runs` & `forecasts` Tables
-Implemented in [`backend/app/models/forecast.py`](file:///c:/Users/EMAAN/OneDrive/Documents/GitHub/sales-prediction-dashboards/backend/app/models/forecast.py).
+#### `tenant_members`
+Enforces Role-Based Access Control (RBAC) membership within workspaces.
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, Not Null | Membership record ID |
+| `tenant_id` | `UUID` | FK `tenants.id`, Not Null | Target organization workspace |
+| `user_id` | `UUID` | FK `users.id`, Not Null | Member user ID |
+| `role` | `VARCHAR(50)` | Default `'MEMBER'` | `'OWNER'`, `'ADMIN'`, `'ANALYST'`, `'VIEWER'` |
+| `created_at` | `DATETIME` | UTC Timestamp | Membership joined date |
 
-#### `model_runs`
-- `id` (`VARCHAR(36)`, PK)
-- `sku` (`VARCHAR(100)`, Indexed, Nullable)
-- `model_version` (`VARCHAR(100)`, Default `'v1.0'`)
-- `model_type` (`VARCHAR(50)`): Model identifier (`snaive`, `sma`, `arima`, `hybrid`).
-- `mae` (`FLOAT`, Nullable): Mean Absolute Error.
-- `rmse` (`FLOAT`, Nullable): Root Mean Squared Error.
-- `wape` (`FLOAT`, Nullable): Weighted Absolute Percentage Error.
-- `status` (`VARCHAR(50)`, Default `'COMPLETED'`)
-- `tenant_id` (`VARCHAR(36)`, Nullable)
-
-#### `forecasts`
-- `id` (`VARCHAR(36)`, PK)
-- `model_run_id` (`VARCHAR(36)`, FK `model_runs.id`, Indexed)
-- `sku` (`VARCHAR(100)`, Indexed)
-- `date` (`DATE`, Indexed, Not Null)
-- `predicted_units` (`FLOAT`, Not Null)
-- `confidence_lower` (`FLOAT`, Nullable): 80% or 95% lower prediction bound.
-- `confidence_upper` (`FLOAT`, Nullable): 80% or 95% upper prediction bound.
-
----
-
-## 3. SQLite Development Auto-Migration
-
-To ensure smooth local execution when new columns are added without requiring manual SQLite migration scripts, [`backend/app/main.py`](file:///c:/Users/EMAAN/OneDrive/Documents/GitHub/sales-prediction-dashboards/backend/app/main.py) executes a non-destructive startup introspection:
-
-1. Connects to the database and checks `PRAGMA table_info(raw_sales_data)`.
-2. Inspects existing column names.
-3. If `order_id`, `category`, `sub_category`, `total_sales`, or `profit` are absent, executes:
-   ```sql
-   ALTER TABLE raw_sales_data ADD COLUMN order_id VARCHAR(100);
-   ALTER TABLE raw_sales_data ADD COLUMN category VARCHAR(100);
-   ALTER TABLE raw_sales_data ADD COLUMN sub_category VARCHAR(100);
-   ALTER TABLE raw_sales_data ADD COLUMN total_sales FLOAT;
-   ALTER TABLE raw_sales_data ADD COLUMN profit FLOAT;
-   ```
-4. Commits changes cleanly to SQLite without corrupting existing records.
+#### `tenant_invitations`
+Handles email-based onboarding and member invitation tokens.
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, Not Null | Invitation record ID |
+| `tenant_id` | `UUID` | FK `tenants.id`, Not Null | Inviting organization |
+| `email` | `VARCHAR(255)` | Not Null | Recipient email address |
+| `role` | `VARCHAR(50)` | Default `'VIEWER'` | Role assigned upon acceptance |
+| `token_hash` | `VARCHAR(64)` | Not Null, Index | SHA-256 hash of the invitation token |
+| `status` | `VARCHAR(50)` | Default `'PENDING'` | `'PENDING'`, `'ACCEPTED'`, `'REVOKED'`, `'EXPIRED'` |
+| `expires_at` | `DATETIME` | Not Null | Expiration timestamp |
+| `accepted_at` | `DATETIME` | Nullable | Token acceptance timestamp |
 
 ---
 
-## 4. Production PostgreSQL & Alembic Migrations
+### 2.2 Universal Data Cleaning Entities
 
-Production container deployments utilize Alembic:
-- Configuration: [`backend/alembic.ini`](file:///c:/Users/EMAAN/OneDrive/Documents/GitHub/sales-prediction-dashboards/backend/alembic.ini).
-- Environment: [`backend/alembic/env.py`](file:///c:/Users/EMAAN/OneDrive/Documents/GitHub/sales-prediction-dashboards/backend/alembic/env.py).
-- Generating new migrations:
-  ```bash
-  cd backend
-  alembic revision --autogenerate -m "Add commercial reporting columns"
-  alembic upgrade head
-  ```
+#### `dataset_versions`
+Tracks versioned customer datasets, structural profiling metadata, and cleaning status.
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, Not Null | Version identifier |
+| `tenant_id` | `UUID` | FK `tenants.id`, Not Null | Owning tenant workspace |
+| `original_filename`| `VARCHAR(255)` | Not Null | User uploaded filename |
+| `file_format` | `VARCHAR(50)` | Not Null | Format (`csv`, `xlsx`, `json`, `parquet`, etc.) |
+| `row_count` | `INTEGER` | Default 0 | Row count |
+| `column_count` | `INTEGER` | Default 0 | Column count |
+| `file_size_bytes` | `INTEGER` | Not Null | Physical file size in bytes |
+| `checksum_sha256` | `VARCHAR(64)` | Not Null | SHA-256 integrity hash |
+| `is_cleaned` | `BOOLEAN` | Default `False` | Whether cleaning pipeline executed |
+| `metadata_json` | `TEXT` | Nullable | Profiling matrices, quality scorecard, latest job ID |
+
+#### `cleaning_jobs`
+Executes and records 20-step pipeline execution jobs.
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, Not Null | Cleaning job identifier |
+| `tenant_id` | `UUID` | FK `tenants.id`, Not Null | Tenant workspace |
+| `dataset_version_id`| `UUID` | FK `dataset_versions.id` | Source dataset version |
+| `status` | `VARCHAR(50)` | Default `'PENDING'` | `'PENDING'`, `'PROCESSING'`, `'COMPLETED'`, `'FAILED'` |
+| `total_steps` | `INTEGER` | Default 20 | Pipeline step count |
+| `completed_steps`| `INTEGER` | Default 0 | Steps completed |
+| `pipeline_config` | `TEXT` | Nullable | JSON configuration of user options |
+| `results_summary` | `TEXT` | Nullable | Before/after row counts, null counts, execution logs |
+
+#### `cleaning_provenance_logs`
+Fine-grained step-by-step audit provenance for every transformation step.
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, Not Null | Log record ID |
+| `job_id` | `UUID` | FK `cleaning_jobs.id` | Parent cleaning job |
+| `step_number` | `INTEGER` | Not Null | Step index (1 to 20) |
+| `step_name` | `VARCHAR(100)` | Not Null | Step label (e.g. `deduplication`, `imputation`) |
+| `status` | `VARCHAR(50)` | Not Null | `'APPLIED'`, `'SKIPPED'`, `'FAILED'` |
+| `details_json` | `TEXT` | Nullable | Transformation metadata and delta changes |
 
 ---
 
-## 5. Deduplication & Transactional Integrity
+### 2.3 Knowledge Base & RAG Entities
 
-- **Clean Duplicates Endpoint** ([`POST /api/v1/data/clean-duplicates`](file:///c:/Users/EMAAN/OneDrive/Documents/GitHub/sales-prediction-dashboards/backend/app/api/v1/endpoints/data.py)):
-  - Evaluates uniqueness across: `['date', 'sku', 'units_sold', 'order_id', 'product_name', 'total_sales']`.
-  - Preserves legitimate multiple transactions on the same calendar day for different orders.
-- **Upload Overwrite Standard**: `POST /api/v1/data/upload?replace=true` safely deletes prior raw transactions, model runs, and forecasts in a single atomic database transaction before inserting newly uploaded records.
+#### `rag_documents`
+Stores metadata and indexing lifecycle for knowledge documents.
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, Not Null | Document identifier |
+| `tenant_id` | `UUID` | FK `tenants.id`, Not Null | Isolated tenant workspace |
+| `user_id` | `UUID` | FK `users.id`, Nullable | Uploader user ID |
+| `title` | `VARCHAR(255)` | Not Null | Document title |
+| `original_filename`| `VARCHAR(255)` | Not Null | Original filename |
+| `file_path` | `VARCHAR(500)` | Not Null | Isolated physical disk path |
+| `file_size` | `INTEGER` | Not Null | File size in bytes |
+| `mime_type` | `VARCHAR(100)` | Not Null | MIME type |
+| `file_type` | `VARCHAR(50)` | Not Null | Extension (`pdf`, `docx`, `txt`, `md`, `json`) |
+| `checksum_sha256` | `VARCHAR(64)` | Index, Not Null | Cryptographic deduplication hash |
+| `status` | `VARCHAR(50)` | Default `'UPLOADED'` | `'UPLOADED'`, `'PROCESSING'`, `'INDEXED'`, `'FAILED'` |
+| `total_chunks` | `INTEGER` | Default 0 | Extracted semantic chunk count |
+| `error_message` | `TEXT` | Nullable | Detailed failure reason |
+| `metadata_json` | `TEXT` | Nullable | Document author, section layout |
+
+#### `rag_chunks`
+Discrete semantic chunks extracted for vector similarity retrieval.
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, Not Null | Chunk identifier |
+| `document_id` | `UUID` | FK `rag_documents.id` | Parent knowledge document |
+| `tenant_id` | `UUID` | FK `tenants.id`, Not Null | Tenant workspace |
+| `chunk_index` | `INTEGER` | Not Null | Sequential chunk index |
+| `chunk_text` | `TEXT` | Not Null | Semantic chunk body |
+| `token_count` | `INTEGER` | Default 0 | Token count |
+| `embedding_json` | `TEXT` | Nullable | Serialized 768-D float vector array |
+| `page_number` | `INTEGER` | Nullable | Source document page number |
+| `section_title` | `VARCHAR(255)` | Nullable | Extracted markdown/header section |
+| `embedding_model`| `VARCHAR(100)` | Nullable | Model name (`text-embedding-004`) |
 
 ---
 
-**End of Database Architecture & Schema Specification**
+### 2.4 Governance & Metering Entities
+
+#### `usage_metrics`
+Tracks tenant resource consumption against plan tier quotas.
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, Not Null | Usage entry ID |
+| `tenant_id` | `UUID` | FK `tenants.id`, Not Null | Tenant workspace |
+| `metric_type` | `VARCHAR(50)` | Not Null | `'ROWS_INGESTED'`, `'STORAGE_BYTES'`, `'MODEL_RUNS'`, `'LLM_QUERIES'` |
+| `metric_value` | `FLOAT` | Not Null | Accumulated value |
+| `period_start` | `DATETIME` | Not Null | Billing period start |
+| `period_end` | `DATETIME` | Not Null | Billing period end |
+
+#### `audit_logs`
+Immutable forensic activity logs.
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, Not Null | Audit log ID |
+| `tenant_id` | `UUID` | FK `tenants.id`, Not Null | Tenant workspace |
+| `user_id` | `UUID` | FK `users.id`, Nullable | Performing user ID |
+| `action` | `VARCHAR(100)` | Not Null | Event action (e.g. `DATASET_CLEANED`, `DOCUMENT_UPLOADED`) |
+| `ip_address` | `VARCHAR(45)` | Nullable | Client IP address |
+| `user_agent` | `VARCHAR(255)` | Nullable | Client user agent |
+| `details_json` | `TEXT` | Nullable | Serialized action payload |
+
+---
+
+**End of Database Architecture Document**

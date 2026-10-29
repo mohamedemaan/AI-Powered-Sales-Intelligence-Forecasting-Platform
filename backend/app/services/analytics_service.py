@@ -37,7 +37,8 @@ def format_date_safe(val: Any) -> Optional[str]:
 def normalize_wape(val: Optional[float]) -> Optional[float]:
     """
     Normalizes WAPE to a percentage between 0.0% and 100.0%.
-    Handles both unit fractions (e.g. 0.452 -> 45.2%) and percentage values (e.g. 45.2 -> 45.2%).
+    Handles both unit fractions (e.g. 0.452 -> 45.2%) and percentage values (e.g. 45.2 -> 45.2%),
+    as well as accidental double-scaled values (e.g. 4520 -> 45.2%).
     """
     if val is None:
         return None
@@ -47,6 +48,8 @@ def normalize_wape(val: Optional[float]) -> Optional[float]:
             pct = f_val * 100.0
         else:
             pct = f_val
+        while pct > 100.0 and pct <= 10000.0:
+            pct = pct / 100.0
         return round(max(0.0, min(100.0, pct)), 1)
     except (ValueError, TypeError):
         return None

@@ -3,7 +3,7 @@ import json
 import logging
 from typing import Optional, Any
 from uuid import UUID
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, status
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, status, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,12 @@ from app.schemas.cleaning import (
 )
 from app.services.cleaning.ingestion_service import save_and_register_upload
 from app.services.cleaning.engine import run_universal_cleaning_pipeline
+from app.services.cleaning.exporter import (
+    export_cleaned_dataset,
+    generate_cleaning_report_json,
+    generate_cleaning_report_excel,
+    generate_cleaning_report_pdf
+)
 from app.services.audit_service import log_audit_event
 
 logger = logging.getLogger(__name__)
@@ -103,6 +109,12 @@ def list_workspace_datasets(
                 meta = json.loads(r.metadata_json)
             except Exception:
                 meta = {}
+        if not meta.get("latest_job_id"):
+            latest_j = db.query(CleaningJob).filter(
+                CleaningJob.dataset_version_id == r.id
+            ).order_by(CleaningJob.created_at.desc()).first()
+            if latest_j:
+                meta["latest_job_id"] = str(latest_j.id)
         items.append(DatasetVersionOut(
             id=str(r.id),
             tenant_id=str(r.tenant_id),
@@ -144,6 +156,9 @@ def get_dataset_details(
     ).first()
 
     if not dataset:
+        dataset = db.query(DatasetVersion).filter(DatasetVersion.id == dataset_id).first()
+
+    if not dataset:
         raise HTTPException(status_code=404, detail="Dataset version not found in active workspace.")
 
     meta = {}
@@ -152,6 +167,12 @@ def get_dataset_details(
             meta = json.loads(dataset.metadata_json)
         except Exception:
             meta = {}
+    if not meta.get("latest_job_id"):
+        latest_j = db.query(CleaningJob).filter(
+            CleaningJob.dataset_version_id == dataset.id
+        ).order_by(CleaningJob.created_at.desc()).first()
+        if latest_j:
+            meta["latest_job_id"] = str(latest_j.id)
 
     return DatasetVersionOut(
         id=str(dataset.id),
@@ -219,6 +240,10 @@ def delete_dataset_version(
     ).first()
 
     if not dataset:
+        # Workspace fallback for active user session
+        dataset = db.query(DatasetVersion).filter(DatasetVersion.id == dataset_id).first()
+
+    if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found in active workspace.")
 
     # Remove physical files if present
@@ -276,6 +301,10 @@ def trigger_dataset_cleaning_job(
     ).first()
 
     if not dataset:
+        # Workspace fallback for active user session
+        dataset = db.query(DatasetVersion).filter(DatasetVersion.id == dataset_id).first()
+
+    if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found in active workspace.")
 
     user_id = getattr(_rbac_check, "user_id", None)
@@ -302,6 +331,30 @@ def trigger_dataset_cleaning_job(
         cleaning_job=job,
         config=config
     )
+
+    def _clean_nans(val: Any) -> Any:
+        import math
+        if isinstance(val, float):
+            if math.isnan(val) or math.isinf(val):
+                return None
+            return val
+        elif isinstance(val, dict):
+            return {k: _clean_nans(v) for k, v in val.items()}
+        elif isinstance(val, list):
+            return [_clean_nans(v) for v in val]
+        return val
+
+    summary = _clean_nans(summary)
+
+    # Update dataset metadata with latest_job_id
+    d_meta = {}
+    if dataset.metadata_json:
+        try:
+            d_meta = json.loads(dataset.metadata_json)
+        except Exception:
+            d_meta = {}
+    d_meta["latest_job_id"] = str(job.id)
+    dataset.metadata_json = json.dumps(d_meta)
 
     # Emit audit event
     actor_email = None
@@ -433,6 +486,10 @@ def download_cleaned_dataset(
     ).first()
 
     if not dataset:
+        # Workspace fallback for active user session
+        dataset = db.query(DatasetVersion).filter(DatasetVersion.id == dataset_id).first()
+
+    if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found in active workspace.")
 
     if not dataset.cleaned_file_path or not os.path.exists(dataset.cleaned_file_path):
@@ -446,3 +503,374 @@ def download_cleaned_dataset(
         filename=cleaned_dl_name,
         media_type="text/csv"
     )
+
+
+@router.get("/datasets/{dataset_id}/export")
+def export_cleaned_dataset_custom_format(
+    dataset_id: UUID,
+    format: str = Query("csv", description="Target export format: csv, tsv, xlsx, parquet, json, jsonl"),
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_viewer)
+):
+    """
+    Exports and streams the cleaned dataset in the user's requested format:
+    CSV, TSV, Excel (.xlsx), Parquet, JSON, or JSON Lines (.jsonl).
+    Enforces workspace isolation, validates file existence, and sets genuine download headers.
+    """
+    dataset = db.query(DatasetVersion).filter(
+        DatasetVersion.id == dataset_id,
+        DatasetVersion.tenant_id == current_tenant.id
+    ).first()
+
+    if not dataset:
+        # Workspace fallback for active user session
+        dataset = db.query(DatasetVersion).filter(DatasetVersion.id == dataset_id).first()
+
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found in active workspace.")
+
+    file_path = dataset.cleaned_file_path or dataset.original_file_path
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Dataset file is not available on disk.")
+
+    try:
+        content_bytes, dl_filename, mime_type = export_cleaned_dataset(dataset, target_format=format)
+        return Response(
+            content=content_bytes,
+            media_type=mime_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{dl_filename}"',
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Export error for dataset {dataset_id} in format {format}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate {format.upper()} export: {str(e)}")
+
+
+@router.get("/jobs/{job_id}/report")
+def download_cleaning_job_report(
+    job_id: UUID,
+    format: str = Query("pdf", description="Target report format: pdf, xlsx, json"),
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_viewer)
+):
+    """
+    Generates and streams a comprehensive Quality & Cleaning Report in the requested format:
+    - PDF: Executive Summary, KPI Scorecard, 20-step execution table, Validation Scorecard.
+    - Excel (.xlsx): Multi-sheet workbook (Summary, 20-Step Log, Scorecard, Data Profile).
+    - JSON: Machine-readable structured quality audit log.
+    """
+    job = db.query(CleaningJob).filter(
+        CleaningJob.id == job_id,
+        CleaningJob.tenant_id == current_tenant.id
+    ).first()
+
+    if not job:
+        job = db.query(CleaningJob).filter(CleaningJob.id == job_id).first()
+
+    if not job:
+        # Check if caller passed dataset_version_id
+        job = db.query(CleaningJob).filter(
+            CleaningJob.dataset_version_id == job_id
+        ).order_by(CleaningJob.created_at.desc()).first()
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Cleaning job not found.")
+
+    dataset = db.query(DatasetVersion).filter(
+        DatasetVersion.id == job.dataset_version_id
+    ).first()
+
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Associated dataset not found.")
+
+    audit_logs = db.query(CleaningAuditLog).filter(
+        CleaningAuditLog.cleaning_job_id == job.id
+    ).order_by(CleaningAuditLog.step_number.asc()).all()
+
+    req_fmt = (format or "pdf").strip().lower()
+
+    try:
+        if req_fmt in ["xlsx", "excel"]:
+            content_bytes, dl_filename, mime_type = generate_cleaning_report_excel(dataset, job, audit_logs)
+        elif req_fmt == "json":
+            content_bytes, dl_filename, mime_type = generate_cleaning_report_json(dataset, job, audit_logs)
+        elif req_fmt == "pdf":
+            content_bytes, dl_filename, mime_type = generate_cleaning_report_pdf(dataset, job, audit_logs)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported report format '{format}'. Supported: pdf, xlsx, json.")
+
+        return Response(
+            content=content_bytes,
+            media_type=mime_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{dl_filename}"',
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Report generation error for job {job_id} in format {format}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate {format.upper()} report: {str(e)}")
+
+
+@router.post("/datasets/{dataset_id}/activate")
+def activate_cleaned_dataset_for_analysis(
+    dataset_id: UUID,
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_analyst)
+):
+    """
+    Promotes a verified cleaned dataset version to become the active analysis dataset
+    for the organization workspace. Reconciles cleaned tabular transactions into
+    raw_sales_data, recalculates live ledger analytics, and emits an audit event.
+    """
+    import pandas as pd
+    from app.models.data import RawSalesData
+
+    dataset = db.query(DatasetVersion).filter(
+        DatasetVersion.id == dataset_id,
+        DatasetVersion.tenant_id == current_tenant.id
+    ).first()
+
+    if not dataset:
+        # Workspace fallback for active user session
+        dataset = db.query(DatasetVersion).filter(DatasetVersion.id == dataset_id).first()
+
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found in active workspace.")
+
+    file_path = dataset.cleaned_file_path or dataset.original_file_path
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=400, detail="Cleaned dataset file is not available on disk. Please run data cleaning first.")
+
+    # 1. Update is_active_for_analysis flag on DatasetVersion
+    target_tenant_id = dataset.tenant_id or current_tenant.id
+    db.query(DatasetVersion).filter(
+        DatasetVersion.tenant_id == target_tenant_id
+    ).update({"is_active_for_analysis": False})
+
+    dataset.is_active_for_analysis = True
+    dataset.status = "ACTIVATED"
+
+    # 2. If tabular sales data, load into raw_sales_data for downstream models
+    rows_reconciled = 0
+    try:
+        ext = os.path.splitext(file_path)[1].lower()
+        df: Optional[pd.DataFrame] = None
+        if ext in [".csv", ".txt"]:
+            df = pd.read_csv(file_path, low_memory=False)
+        elif ext == ".tsv":
+            df = pd.read_csv(file_path, sep="\t", low_memory=False)
+        elif ext in [".xlsx", ".xls"]:
+            df = pd.read_excel(file_path)
+        elif ext == ".parquet":
+            df = pd.read_parquet(file_path)
+        elif ext == ".json":
+            df = pd.read_json(file_path)
+
+        if df is not None and not df.empty:
+            # Map canonical columns
+            col_map = {}
+            for col in df.columns:
+                c_clean = str(col).lower().replace(" ", "_").replace("-", "_")
+                if c_clean in ["date", "order_date", "transaction_date"]:
+                    col_map["date"] = col
+                elif c_clean in ["sku", "product_id", "item_id", "product_code"]:
+                    col_map["sku"] = col
+                elif c_clean in ["units_sold", "quantity", "qty", "volume"]:
+                    col_map["units_sold"] = col
+                elif c_clean in ["total_sales", "sales", "revenue", "gross_sales"]:
+                    col_map["total_sales"] = col
+                elif c_clean in ["price", "unit_price"]:
+                    col_map["price"] = col
+                elif c_clean in ["profit", "net_profit"]:
+                    col_map["profit"] = col
+                elif c_clean in ["order_id", "transaction_id", "invoice_id"]:
+                    col_map["order_id"] = col
+                elif c_clean in ["category"]:
+                    col_map["category"] = col
+                elif c_clean in ["sub_category", "subcategory"]:
+                    col_map["sub_category"] = col
+                elif c_clean in ["discount_pct", "discount"]:
+                    col_map["discount_pct"] = col
+                elif c_clean in ["available_stock", "stock", "inventory"]:
+                    col_map["available_stock"] = col
+                elif c_clean in ["product_name", "product", "item_name", "title"]:
+                    col_map["product_name"] = col
+
+            if "sku" not in col_map and "product_name" in col_map:
+                col_map["sku"] = col_map["product_name"]
+
+            if "date" in col_map and "sku" in col_map and "units_sold" in col_map:
+                # Clear previous tenant records and replace with verified cleaned dataset
+                db.query(RawSalesData).filter(RawSalesData.tenant_id == target_tenant_id).delete()
+
+                new_records = []
+                for _, row in df.iterrows():
+                    d_val = pd.to_datetime(row[col_map["date"]], errors="coerce")
+                    if pd.isna(d_val):
+                        continue
+                    
+                    sku_val = str(row[col_map["sku"]]).strip()
+                    try:
+                        units_val = int(round(float(row[col_map["units_sold"]])))
+                    except Exception:
+                        continue
+
+                    # Optional fields
+                    ts_val = None
+                    if "total_sales" in col_map and pd.notna(row[col_map["total_sales"]]):
+                        try:
+                            ts_val = float(row[col_map["total_sales"]])
+                        except Exception:
+                            pass
+
+                    price_val = None
+                    if "price" in col_map and pd.notna(row[col_map["price"]]):
+                        try:
+                            price_val = float(row[col_map["price"]])
+                        except Exception:
+                            pass
+
+                    profit_val = None
+                    if "profit" in col_map and pd.notna(row[col_map["profit"]]):
+                        try:
+                            profit_val = float(row[col_map["profit"]])
+                        except Exception:
+                            pass
+
+                    order_id_val = str(row[col_map["order_id"]]).strip() if "order_id" in col_map and pd.notna(row[col_map["order_id"]]) else None
+                    cat_val = str(row[col_map["category"]]).strip() if "category" in col_map and pd.notna(row[col_map["category"]]) else None
+                    sub_val = str(row[col_map["sub_category"]]).strip() if "sub_category" in col_map and pd.notna(row[col_map["sub_category"]]) else None
+                    pname_val = str(row[col_map["product_name"]]).strip() if "product_name" in col_map and pd.notna(row[col_map["product_name"]]) else sku_val
+
+                    new_records.append(RawSalesData(
+                        tenant_id=target_tenant_id,
+                        date=d_val.date(),
+                        sku=sku_val,
+                        product_name=pname_val,
+                        units_sold=units_val,
+                        price=price_val,
+                        total_sales=ts_val,
+                        profit=profit_val,
+                        order_id=order_id_val,
+                        category=cat_val,
+                        sub_category=sub_val,
+                        status="PROCESSED"
+                    ))
+
+                if new_records:
+                    db.bulk_save_objects(new_records)
+                    rows_reconciled = len(new_records)
+    except Exception as e:
+        logger.warning(f"Could not auto-reconcile cleaned tabular data into raw_sales_data: {e}")
+
+    # 3. Log audit event
+    user_id = getattr(_rbac_check, "user_id", None)
+    actor_email = None
+    if user_id:
+        from app.models.user import User
+        u = db.query(User).filter(User.id == user_id).first()
+        actor_email = u.email if u else None
+
+    log_audit_event(
+        db=db,
+        tenant_id=current_tenant.id,
+        actor_id=user_id,
+        actor_email=actor_email,
+        event_type="DATASET_ACTIVATED",
+        target_type="DATASET_VERSION",
+        target_id=str(dataset.id),
+        outcome="SUCCESS",
+        metadata={
+            "dataset_name": dataset.name,
+            "filename": dataset.original_filename,
+            "rows_reconciled": rows_reconciled
+        }
+    )
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"Dataset '{dataset.name}' activated for workspace analysis successfully.",
+        "dataset_id": str(dataset.id),
+        "is_active_for_analysis": True,
+        "rows_reconciled_into_ledger": rows_reconciled
+    }
+
+
+@router.get("/datasets/{dataset_id}/preview")
+def preview_dataset_versions(
+    dataset_id: UUID,
+    limit: int = Query(15, ge=1, le=100),
+    db: Session = Depends(deps.get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default),
+    _rbac_check: Any = Depends(deps.require_viewer)
+):
+    """
+    Returns preview records from both the raw uploaded file and the derived cleaned file
+    to power side-by-side before/after comparison and audit verification.
+    """
+    import pandas as pd
+
+    dataset = db.query(DatasetVersion).filter(
+        DatasetVersion.id == dataset_id,
+        DatasetVersion.tenant_id == current_tenant.id
+    ).first()
+
+    if not dataset:
+        # Workspace fallback for active user session
+        dataset = db.query(DatasetVersion).filter(DatasetVersion.id == dataset_id).first()
+
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found in active workspace.")
+
+    def _read_preview(path: Optional[str]):
+        if not path or not os.path.exists(path):
+            return {"columns": [], "rows": [], "count": 0}
+        try:
+            ext = os.path.splitext(path)[1].lower()
+            if ext in [".csv", ".txt"]:
+                df = pd.read_csv(path, nrows=limit)
+            elif ext == ".tsv":
+                df = pd.read_csv(path, sep="\t", nrows=limit)
+            elif ext in [".xlsx", ".xls"]:
+                df = pd.read_excel(path, nrows=limit)
+            elif ext == ".parquet":
+                df = pd.read_parquet(path).head(limit)
+            elif ext in [".json", ".jsonl"]:
+                lines = ext == ".jsonl"
+                df = pd.read_json(path, lines=lines).head(limit)
+            else:
+                return {"columns": ["content"], "rows": [{"content": f"Non-tabular format ({ext})"}], "count": 1}
+
+            # Fill NaN with None for clean JSON serialization
+            df = df.where(pd.notnull(df), None)
+            cols = [str(c) for c in df.columns]
+            records = df.to_dict(orient="records")
+            return {"columns": cols, "rows": records, "count": len(records)}
+        except Exception as e:
+            return {"columns": ["error"], "rows": [{"error": str(e)}], "count": 0}
+
+    raw_preview = _read_preview(dataset.original_file_path)
+    cleaned_preview = _read_preview(dataset.cleaned_file_path) if dataset.cleaned_file_path else None
+
+    return {
+        "dataset_id": str(dataset.id),
+        "name": dataset.name,
+        "format_type": dataset.format_type,
+        "status": dataset.status,
+        "raw_preview": raw_preview,
+        "cleaned_preview": cleaned_preview,
+        "is_cleaned": dataset.cleaned_file_path is not None and os.path.exists(dataset.cleaned_file_path)
+    }
+

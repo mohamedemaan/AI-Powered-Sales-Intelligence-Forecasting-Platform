@@ -7,7 +7,12 @@ from app.main import app
 from app.services.reporting_service import (
     build_detail_csv,
     build_summary_csv,
-    generate_professional_sales_report
+    generate_professional_sales_report,
+    generate_professional_sales_report_excel,
+    generate_professional_sales_report_pdf,
+    generate_professional_sales_report_parquet,
+    generate_professional_sales_report_tsv,
+    generate_professional_sales_report_json
 )
 
 client = TestClient(app)
@@ -127,4 +132,22 @@ def test_report_csv_download():
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
     assert "attachment; filename=\"professional_sales_summary_" in response.headers["content-disposition"]
+
+
+def test_report_multi_format_exports():
+    formats = [
+        ("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        ("pdf", "application/pdf"),
+        ("parquet", "application/vnd.apache.parquet"),
+        ("tsv", "text/tab-separated-values"),
+        ("json", "application/json"),
+        ("summary_csv", "text/csv"),
+    ]
+    for fmt, mime in formats:
+        response = client.get(f"/api/v1/analytics/report/export?format={fmt}&mode=range&start_date=2020-01-01&end_date=2030-12-31")
+        assert response.status_code == 200, f"Format {fmt} failed with {response.status_code}"
+        assert mime in response.headers["content-type"], f"Expected {mime} for {fmt}, got {response.headers['content-type']}"
+        assert "Content-Disposition" in response.headers
+        assert len(response.content) > 50
+
 

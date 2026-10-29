@@ -60,21 +60,20 @@ def clean_text_dataframe(
     df_clean = df.copy()
     cleaned_columns = []
     
-    target_cols = columns or [c for c in df_clean.columns if df_clean[c].dtype == 'object']
+    target_cols = columns or [c for c in df_clean.columns if pd.api.types.is_string_dtype(df_clean[c]) or df_clean[c].dtype == 'object']
     
     for col in target_cols:
         if col not in df_clean.columns:
             continue
             
-        non_null_mask = df_clean[col].notna()
-        df_clean.loc[non_null_mask, col] = df_clean.loc[non_null_mask, col].astype(str).apply(
+        df_clean[col] = df_clean[col].apply(
             lambda x: normalize_text_content(
-                x,
+                str(x),
                 strip_html=strip_html,
                 normalize_unicode=normalize_unicode,
                 strip_extra_whitespace=strip_whitespace,
                 case_mode=case_mode
-            )
+            ) if pd.notna(x) else x
         )
         cleaned_columns.append(col)
 

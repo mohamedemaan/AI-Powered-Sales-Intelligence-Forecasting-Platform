@@ -27,21 +27,30 @@ export const useSalesData = (params?: OverviewParams) => {
         api.get("/api/v1/analytics/forecast", { params: sku ? { sku } : undefined })
       ]);
 
-      // If overview does not contain model evaluation metrics yet, pull from model-health telemetry
+      // If overview does not contain model evaluation metrics yet, pull from model-health telemetry or ml/history
       if (overviewRes.data && overviewRes.data.model_wape == null) {
         try {
           const healthRes = await api.get("/api/v1/analytics/model-health");
-          if (healthRes.data) {
-            const hwape = healthRes.data.avg_wape ?? healthRes.data.wape ?? healthRes.data.latest_run?.wape;
-            if (hwape != null) {
-              const numWape = Number(hwape);
-              const normalizedWape = numWape <= 1.5 ? numWape * 100 : (numWape > 100 && numWape <= 10000 ? numWape / 100 : numWape);
-              overviewRes.data.model_wape = Math.round(normalizedWape * 10) / 10;
-              overviewRes.data.model_accuracy = Math.round(Math.max(0, 100 - overviewRes.data.model_wape) * 10) / 10;
+          let hwape = healthRes.data?.avg_wape ?? healthRes.data?.wape ?? healthRes.data?.latest_run?.wape;
+          
+          if (hwape == null) {
+            const histRes = await api.get("/api/v1/ml/history");
+            const firstRun = histRes.data?.runs?.[0];
+            hwape = firstRun?.metrics?.wape;
+          }
+
+          if (hwape != null) {
+            let numWape = Number(hwape);
+            if (!isNaN(numWape)) {
+              if (numWape <= 1.5) numWape = numWape * 100;
+              while (numWape > 100 && numWape <= 10000) numWape = numWape / 100;
+              const roundedWape = Math.round(Math.min(100, Math.max(0, numWape)) * 10) / 10;
+              overviewRes.data.model_wape = roundedWape;
+              overviewRes.data.model_accuracy = Math.round(Math.max(0, 100 - roundedWape) * 10) / 10;
             }
           }
         } catch {
-          // Fallback silently if model-health unavailable
+          // Fallback silently if telemetry endpoints unavailable
         }
       }
 

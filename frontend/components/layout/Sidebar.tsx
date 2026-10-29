@@ -18,6 +18,7 @@ import {
 const navItems = [
   { href: '/dashboard', label: 'Overview' },
   { href: '/data', label: 'Data Ingestion & Preview' },
+  { href: '/cleaning', label: 'Data Cleaning Studio' },
   { href: '/analytics', label: 'Sales Analytics' },
   { href: '/forecast', label: 'Forecast Lab' },
   { href: '/anomalies', label: 'Anomalies' },
@@ -25,6 +26,7 @@ const navItems = [
   { href: '/inventory', label: 'Inventory Intelligence' },
   { href: '/model-health', label: 'Model Health' },
   { href: '/gemini', label: 'Gemini AI' },
+  { href: '/knowledge', label: 'Knowledge Base (RAG)' },
   { href: '/reports', label: 'Reports & Exports' },
   { href: '/billing', label: 'Subscription & Plans' },
   { href: '/audit', label: 'Audit Logs' },

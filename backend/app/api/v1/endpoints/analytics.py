@@ -4,7 +4,14 @@ from typing import Optional
 from app.api import deps
 from app.api.deps import get_db
 from app.models.tenant import Tenant
-from app.services.reporting_service import generate_professional_sales_report
+from app.services.reporting_service import (
+    generate_professional_sales_report,
+    generate_professional_sales_report_excel,
+    generate_professional_sales_report_pdf,
+    generate_professional_sales_report_parquet,
+    generate_professional_sales_report_tsv,
+    generate_professional_sales_report_json
+)
 from app.services.analytics_service import (
     get_overview_data,
     get_trends_data,
@@ -483,7 +490,15 @@ def get_model_health(
     def _normalize_wape(val):
         if val is None:
             return None
-        return round(float(val) * 100, 1) if float(val) <= 1.5 else round(float(val), 1)
+        try:
+            fv = float(val)
+            if fv <= 1.5:
+                fv = fv * 100.0
+            while fv > 100.0 and fv <= 10000.0:
+                fv = fv / 100.0
+            return round(min(100.0, max(0.0, fv)), 1)
+        except (ValueError, TypeError):
+            return None
 
     latest_run = None
     if last_runs:
@@ -639,3 +654,70 @@ def download_professional_sales_report_csv(
             "Content-Disposition": f'attachment; filename="{filename}"'
         }
     )
+
+
+@router.get("/report/export")
+def download_professional_sales_report_multiformat(
+    format: str = Query("xlsx", description="Target format: xlsx, pdf, parquet, tsv, json, csv, summary_csv"),
+    target_name: Optional[str] = Query("ALL"),
+    mode: Optional[str] = Query("range"),
+    selected_date: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_tenant: Tenant = Depends(deps.get_current_tenant_or_default)
+):
+    """
+    Direct streaming HTTP download for the professional sales summary report in any format:
+    - Excel (.xlsx): Formatted multi-sheet workbook with styled headers and KPI cards.
+    - PDF (.pdf): Executive print-ready summary report with KPI blocks and data tables.
+    - Parquet (.parquet): Columnar format for data science and warehouse workflows.
+    - TSV (.tsv): Tab-separated values.
+    - JSON (.json): Machine-readable structured payload.
+    - CSV (.csv): Standard detailed line-item breakdown.
+    - Summary CSV (.csv): Key metrics and parameters.
+    """
+    report = generate_professional_sales_report(
+        db=db,
+        target_name=target_name,
+        mode=mode,
+        selected_date=selected_date,
+        start_date=start_date,
+        end_date=end_date,
+        tenant_id=current_tenant.id
+    )
+
+    req_fmt = (format or "xlsx").strip().lower()
+    
+    if req_fmt in ["xlsx", "excel"]:
+        content_bytes, dl_filename, mime_type = generate_professional_sales_report_excel(report)
+    elif req_fmt == "pdf":
+        content_bytes, dl_filename, mime_type = generate_professional_sales_report_pdf(report)
+    elif req_fmt == "parquet":
+        content_bytes, dl_filename, mime_type = generate_professional_sales_report_parquet(report)
+    elif req_fmt == "tsv":
+        content_bytes, dl_filename, mime_type = generate_professional_sales_report_tsv(report)
+    elif req_fmt == "json":
+        content_bytes, dl_filename, mime_type = generate_professional_sales_report_json(report)
+    elif req_fmt == "summary_csv":
+        meta = report.get("report_metadata", {})
+        csv_text = report.get("summary_csv", "")
+        dl_filename = meta.get("summary_filename", "professional_sales_summary_summary.csv")
+        content_bytes = csv_text.encode("utf-8")
+        mime_type = "text/csv; charset=utf-8"
+    else:  # csv
+        meta = report.get("report_metadata", {})
+        csv_text = report.get("detail_csv", "")
+        dl_filename = meta.get("filename", "professional_sales_summary.csv")
+        content_bytes = csv_text.encode("utf-8")
+        mime_type = "text/csv; charset=utf-8"
+
+    return Response(
+        content=content_bytes,
+        media_type=mime_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{dl_filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
+    )
+

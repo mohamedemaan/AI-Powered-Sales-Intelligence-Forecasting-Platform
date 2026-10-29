@@ -7,4 +7,6 @@ from app.models.data import RawSalesData
 from app.models.forecast import Forecast, ModelRun
 from app.models.audit import AuditLog
 from app.models.dataset import DatasetVersion, CleaningJob, CleaningAuditLog
+from app.models.rag import RagDocument, RagChunk
+
 

@@ -26,6 +26,7 @@ import app.models.tenant
 import app.models.forecast
 import app.models.audit
 import app.models.dataset
+import app.models.rag
 
 # Create tables for testing/local dev (In production, use Alembic)
 Base.metadata.create_all(bind=engine)
@@ -231,3 +232,6 @@ def root_forecast_endpoint(
 ):
     from app.api.v1.endpoints.ml import train_and_select_models
     return train_and_select_models(sku=sku, forecast_days=forecast_days, db=db, current_tenant=current_tenant)
+
+# SalesMind AI Platform initialized
+

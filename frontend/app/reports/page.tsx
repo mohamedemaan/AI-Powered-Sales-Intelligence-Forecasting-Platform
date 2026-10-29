@@ -23,7 +23,11 @@ import {
   ArrowRight,
   ShieldCheck,
   Layers,
-  Sparkles
+  Sparkles,
+  FileSpreadsheet,
+  Database,
+  FileCode,
+  Check
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -115,6 +119,10 @@ export default function ReportsPage() {
   const [tableSearch, setTableSearch] = useState('')
   const [sortField, setSortField] = useState<keyof CategoryBreakdownRow>('total_sales_usd')
   const [sortAsc, setSortAsc] = useState(false)
+
+  // 5. Multi-Format Export Telemetry
+  const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null)
+  const [downloadFeedback, setDownloadFeedback] = useState<string | null>(null)
 
   // Fetch available products & dataset metadata
   const { data: products, isLoading: loadingProducts } = useQuery<ProductOption[]>({
@@ -250,49 +258,91 @@ export default function ReportsPage() {
     }
   }
 
+  // Universal Multi-Format Downloader (Axios Blob -> Client Native Download)
+  const handleDownloadFormat = async (format: string, label: string) => {
+    if (!reportData) return
+    setDownloadingFormat(format)
+    setDownloadFeedback(null)
+
+    try {
+      const params: Record<string, string> = {
+        format,
+        target_name: selectedSku,
+        mode
+      }
+      if (mode === 'single' && selectedDate) {
+        params.selected_date = selectedDate
+      } else if (mode === 'range') {
+        if (startDate) params.start_date = startDate
+        if (endDate) params.end_date = endDate
+      }
+
+      const res = await api.get('/api/v1/analytics/report/export', {
+        params,
+        responseType: 'blob'
+      })
+
+      const contentDisposition = res.headers['content-disposition'] || ''
+      const ext = format === 'summary_csv' ? 'csv' : format
+      let filename = `professional_sales_summary_${new Date().toISOString().slice(0, 10)}.${ext}`
+      const match = contentDisposition.match(/filename=["']?([^"';]+)["']?/i)
+      if (match && match[1]) {
+        filename = match[1]
+      }
+
+      const blob = new Blob([res.data], { type: String(res.headers['content-type'] || 'application/octet-stream') })
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      link.setAttribute('download', filename)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(downloadUrl)
+
+      setDownloadFeedback(`Successfully exported ${filename}!`)
+      setTimeout(() => setDownloadFeedback(null), 5000)
+    } catch (err: any) {
+      console.error('Download error:', err)
+      setErrorMsg(`Failed to download ${label}. Ensure backend server is connected.`)
+    } finally {
+      setDownloadingFormat(null)
+    }
+  }
+
   // Download Detail CSV
   const handleDownloadDetailCSV = () => {
-    if (!reportData?.detail_csv) return
-    const filename = reportData.report_metadata.filename || `professional_sales_summary_${new Date().toISOString().slice(0, 10)}.csv`
-    const blob = new Blob([reportData.detail_csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', filename)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+    handleDownloadFormat('csv', 'Detail CSV')
   }
 
   // Download Summary CSV
   const handleDownloadSummaryCSV = () => {
-    if (!reportData?.summary_csv) return
-    const filename = reportData.report_metadata.summary_filename || `professional_sales_summary_summary_${new Date().toISOString().slice(0, 10)}.csv`
-    const blob = new Blob([reportData.summary_csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', filename)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+    handleDownloadFormat('summary_csv', 'Summary CSV')
   }
 
   // Download Full JSON
   const handleDownloadJSON = () => {
-    if (!reportData) return
-    const dateStr = new Date().toISOString().slice(0, 10)
-    const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', `professional_sales_report_${dateStr}.json`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+    handleDownloadFormat('json', 'JSON')
+  }
+
+  // Download Excel (.xlsx)
+  const handleDownloadExcel = () => {
+    handleDownloadFormat('xlsx', 'Excel (.xlsx)')
+  }
+
+  // Download Executive PDF (.pdf)
+  const handleDownloadPDF = () => {
+    handleDownloadFormat('pdf', 'Executive PDF (.pdf)')
+  }
+
+  // Download Parquet (.parquet)
+  const handleDownloadParquet = () => {
+    handleDownloadFormat('parquet', 'Apache Parquet (.parquet)')
+  }
+
+  // Download TSV (.tsv)
+  const handleDownloadTSV = () => {
+    handleDownloadFormat('tsv', 'TSV (.tsv)')
   }
 
   // Print / Save to PDF
@@ -684,42 +734,294 @@ export default function ReportsPage() {
                   Export Delivery Center
                 </h4>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Download audited CSV reports or print professional PDF documentation for business reviews.
+                  Download audited sales intelligence reports in all formats (Excel, PDF, Parquet, TSV, CSV, JSON) or trigger print preview.
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handleDownloadExcel}
+                  disabled={Boolean(downloadingFormat)}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition shadow flex items-center gap-1.5 disabled:opacity-50"
+                  title="Download formatted multi-sheet Excel report"
+                >
+                  {downloadingFormat === 'xlsx' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                  )}
+                  Excel (.xlsx)
+                </button>
+
+                <button
+                  onClick={handleDownloadPDF}
+                  disabled={Boolean(downloadingFormat)}
+                  className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition shadow flex items-center gap-1.5 disabled:opacity-50"
+                  title="Download executive PDF document"
+                >
+                  {downloadingFormat === 'pdf' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <FileText className="h-3.5 w-3.5" />
+                  )}
+                  PDF (.pdf)
+                </button>
+
                 <button
                   onClick={handleDownloadDetailCSV}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow flex items-center gap-2"
-                  title="Download clean Category & Sub-Category table as CSV"
+                  disabled={Boolean(downloadingFormat)}
+                  className="bg-primary hover:bg-blue-600 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition shadow flex items-center gap-1.5 disabled:opacity-50"
+                  title="Download detail line-item CSV"
                 >
-                  <Download className="h-4 w-4" />
-                  Download Detail CSV ({reportData.report_metadata.filename})
-                </button>
-
-                <button
-                  onClick={handleDownloadSummaryCSV}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold px-3.5 py-2.5 rounded-xl transition flex items-center gap-2"
-                  title="Download high-level summary KPIs and metadata"
-                >
-                  <FileText className="h-4 w-4" />
-                  Download Summary CSV
-                </button>
-
-                <button
-                  onClick={handleDownloadJSON}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold px-3 py-2.5 rounded-xl transition flex items-center gap-1.5"
-                >
-                  JSON
+                  {downloadingFormat === 'csv' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  Detail CSV
                 </button>
 
                 <button
                   onClick={handlePrintPDF}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold px-3.5 py-2.5 rounded-xl transition flex items-center gap-2"
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold px-3 py-2 rounded-xl transition flex items-center gap-1.5"
                 >
-                  <Printer className="h-4 w-4 text-slate-400" />
-                  Print / Save as PDF
+                  <Printer className="h-3.5 w-3.5 text-slate-400" />
+                  Print
+                </button>
+              </div>
+            </div>
+
+            {/* Notification Banner */}
+            {downloadFeedback && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs flex items-center justify-between animate-fadeIn">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>{downloadFeedback}</span>
+                </div>
+                <button onClick={() => setDownloadFeedback(null)} className="text-slate-400 hover:text-white">
+                  &times;
+                </button>
+              </div>
+            )}
+
+            {/* Supported Formats Grid (All Types) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+              {/* 1. Excel */}
+              <div className="bg-background/60 p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded">
+                      XLSX
+                    </span>
+                    <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+                  </div>
+                  <h5 className="text-xs font-bold text-white">Excel Multi-Sheet Workbook</h5>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    Formatted sheets for Executive Summary, Category Breakdown, and Dataset Coverage with styled headers.
+                  </p>
+                </div>
+                <button
+                  onClick={handleDownloadExcel}
+                  disabled={Boolean(downloadingFormat)}
+                  className="w-full bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold py-1.5 px-3 rounded-lg transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {downloadingFormat === 'xlsx' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  Download .xlsx
+                </button>
+              </div>
+
+              {/* 2. PDF */}
+              <div className="bg-background/60 p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded">
+                      PDF
+                    </span>
+                    <FileText className="h-4 w-4 text-rose-400" />
+                  </div>
+                  <h5 className="text-xs font-bold text-white">Executive PDF Report</h5>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    Print-ready corporate document featuring revenue KPI blocks, category performance table, and audit stamp.
+                  </p>
+                </div>
+                <button
+                  onClick={handleDownloadPDF}
+                  disabled={Boolean(downloadingFormat)}
+                  className="w-full bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-semibold py-1.5 px-3 rounded-lg transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {downloadingFormat === 'pdf' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  Download .pdf
+                </button>
+              </div>
+
+              {/* 3. Parquet */}
+              <div className="bg-background/60 p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded">
+                      PARQUET
+                    </span>
+                    <Database className="h-4 w-4 text-amber-400" />
+                  </div>
+                  <h5 className="text-xs font-bold text-white">Columnar Apache Parquet</h5>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    Snappy-compressed columnar binary format optimized for BigQuery, Snowflake, DuckDB, and data science.
+                  </p>
+                </div>
+                <button
+                  onClick={handleDownloadParquet}
+                  disabled={Boolean(downloadingFormat)}
+                  className="w-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold py-1.5 px-3 rounded-lg transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {downloadingFormat === 'parquet' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  Download .parquet
+                </button>
+              </div>
+
+              {/* 4. Detail CSV */}
+              <div className="bg-background/60 p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded">
+                      CSV
+                    </span>
+                    <FileText className="h-4 w-4 text-blue-400" />
+                  </div>
+                  <h5 className="text-xs font-bold text-white">Detail Line-Item CSV</h5>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    RFC 4180 category and sub-category ledger rows preserving verified sales orders and profit amounts.
+                  </p>
+                </div>
+                <button
+                  onClick={handleDownloadDetailCSV}
+                  disabled={Boolean(downloadingFormat)}
+                  className="w-full bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/30 text-xs font-semibold py-1.5 px-3 rounded-lg transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {downloadingFormat === 'csv' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  Download Detail CSV
+                </button>
+              </div>
+
+              {/* 5. Summary CSV */}
+              <div className="bg-background/60 p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono font-bold bg-slate-700 text-slate-300 border border-slate-600 px-2 py-0.5 rounded">
+                      SUMMARY
+                    </span>
+                    <FileText className="h-4 w-4 text-slate-400" />
+                  </div>
+                  <h5 className="text-xs font-bold text-white">Executive Summary CSV</h5>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    Separate clean summary KPIs, analysis scope, date horizon parameters, and metadata notes.
+                  </p>
+                </div>
+                <button
+                  onClick={handleDownloadSummaryCSV}
+                  disabled={Boolean(downloadingFormat)}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold py-1.5 px-3 rounded-lg transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {downloadingFormat === 'summary_csv' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  Download Summary CSV
+                </button>
+              </div>
+
+              {/* 6. TSV */}
+              <div className="bg-background/60 p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded">
+                      TSV
+                    </span>
+                    <FileText className="h-4 w-4 text-indigo-400" />
+                  </div>
+                  <h5 className="text-xs font-bold text-white">Tab-Separated Values (.tsv)</h5>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    Tab-delimited text format ideal for direct copy-pasting into R, Stata, Julia, and spreadsheet software.
+                  </p>
+                </div>
+                <button
+                  onClick={handleDownloadTSV}
+                  disabled={Boolean(downloadingFormat)}
+                  className="w-full bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-xs font-semibold py-1.5 px-3 rounded-lg transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {downloadingFormat === 'tsv' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  Download .tsv
+                </button>
+              </div>
+
+              {/* 7. JSON */}
+              <div className="bg-background/60 p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30 px-2 py-0.5 rounded">
+                      JSON
+                    </span>
+                    <FileCode className="h-4 w-4 text-purple-400" />
+                  </div>
+                  <h5 className="text-xs font-bold text-white">Structured JSON Payload</h5>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    Schema-compliant JSON object containing report metadata, store summary, and nested category performance.
+                  </p>
+                </div>
+                <button
+                  onClick={handleDownloadJSON}
+                  disabled={Boolean(downloadingFormat)}
+                  className="w-full bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 text-xs font-semibold py-1.5 px-3 rounded-lg transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {downloadingFormat === 'json' ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  Download .json
+                </button>
+              </div>
+
+              {/* 8. Print */}
+              <div className="bg-background/60 p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono font-bold bg-teal-500/20 text-teal-400 border border-teal-500/30 px-2 py-0.5 rounded">
+                      PRINT
+                    </span>
+                    <Printer className="h-4 w-4 text-teal-400" />
+                  </div>
+                  <h5 className="text-xs font-bold text-white">Print / Browser PDF Dialog</h5>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    Opens your browser native print dialog with an executive print stylesheet hiding UI controls.
+                  </p>
+                </div>
+                <button
+                  onClick={handlePrintPDF}
+                  className="w-full bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 text-xs font-semibold py-1.5 px-3 rounded-lg transition flex items-center justify-center gap-1.5"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  Open Print Dialog
                 </button>
               </div>
             </div>

@@ -188,11 +188,19 @@ export default function DataManagementPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      <header>
-        <h2 className="text-3xl font-bold tracking-tight text-white">Data Management & Ingestion</h2>
-        <p className="text-slate-400 text-sm mt-0.5">
-          Upload sales CSV datasets, inspect schema columns, verify date spans, and audit data hygiene.
-        </p>
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight text-white">Data Management & Ingestion</h2>
+          <p className="text-slate-400 text-sm mt-0.5">
+            Upload sales CSV datasets, inspect schema columns, verify date spans, and audit data hygiene.
+          </p>
+        </div>
+        <Link
+          href="/cleaning"
+          className="inline-flex items-center gap-2 bg-primary/20 text-primary border border-primary/40 hover:bg-primary/30 text-xs px-3.5 py-2 rounded-lg font-semibold transition shrink-0"
+        >
+          Open Data Cleaning Studio &rarr;
+        </Link>
       </header>
 
       {/* RBAC Viewer Warning Banner */}

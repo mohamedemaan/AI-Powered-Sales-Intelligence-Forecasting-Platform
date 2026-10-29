@@ -145,6 +145,20 @@ Access the application at [http://localhost](http://localhost) (or Next.js direc
 - Evaluates price elasticity, discount adjustments, and demand multipliers against historical baseline revenue.
 - Endpoint: `POST /api/v1/analytics/simulate`.
 
+### 11. Universal Data Cleaning Studio (`/cleaning`)
+- Autonomous multi-format data profiling, schema casting, imputation, deduplication, and quality scoring across CSV, TSV, XLSX, Parquet, JSON, and media.
+- Side-by-side raw vs. cleaned dataset explorer, multi-format export center, and 1-click promotion to live sales ledger.
+- Endpoints: `POST /api/v1/cleaning/upload`, `POST /api/v1/cleaning/datasets/{id}/clean`, `GET /api/v1/cleaning/datasets/{id}/export`.
+
+### 12. Knowledge Assistant & Hybrid RAG (`/knowledge`)
+- Production-grade Retrieval-Augmented Generation (RAG) system grounded in internal sales playbooks, strategy memos, discount policies, and product catalogs.
+- Multi-format document parser (PDF, DOCX, TXT, MD, CSV, TSV, JSON), structure-aware chunker, Google Gemini `text-embedding-004` (768-dim) with offline fallback adapter, and persistent vector store (FAISS `IndexFlatIP` with pure-NumPy fallback).
+- Multi-tenant vector index isolation (`uploads/tenants/<tenant_id>/vector_index/`).
+- Tri-mode hybrid router (`KNOWLEDGE`, `LEDGER_ANALYTICS`, `HYBRID`) combining semantic vector retrieval with exact SQL ledger execution.
+- Grounding defense and strict honesty policy preventing hallucination when information is absent.
+- Interactive Knowledge Chat with intent badges, source citation cards, chunk inspector modal, and document management ledger.
+- Endpoints: `POST /api/v1/rag/documents`, `POST /api/v1/rag/chat`, `GET /api/v1/rag/health`.
+
 ---
 
 ## Project Structure
@@ -200,6 +214,11 @@ Full architectural and operational documentation is synchronized in the [`docs/`
 - [Changelog](docs/CHANGELOG.md)
 - [Contribution Guidelines](docs/CONTRIBUTING.md)
 - [AI Engineering Rules](docs/AGENTS.md)
+- [RAG Architecture & System Design](docs/RAG_ARCHITECTURE.md)
+- [RAG Implementation & Setup Guide](docs/RAG_SETUP.md)
+- [RAG API Specification](docs/RAG_API.md)
+- [RAG Security & Multi-Tenancy](docs/RAG_SECURITY.md)
+- [RAG Test Plan & Verification](docs/RAG_TESTING.md)
 
 ---
 

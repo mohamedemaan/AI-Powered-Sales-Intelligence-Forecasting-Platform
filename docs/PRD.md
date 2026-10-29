@@ -1,10 +1,11 @@
 # Sales Intelligence Platform
 ## Product Requirements Document (PRD)
 
-**Version:** 2.0  
+**Version:** 3.0  
 **Planning Year:** 2026  
+**Last Synchronized:** October 30, 2026  
 **Status:** Verified & Synchronized Specification  
-**Product Type:** AI-Powered Sales Forecasting and Business Intelligence SaaS
+**Product Type:** AI-Powered Sales Forecasting, Data Cleaning, and Knowledge RAG SaaS
 
 ---
 
@@ -76,6 +77,11 @@ Deliver a reliable, modular, and audit-ready Sales Intelligence SaaS platform th
 | **User Profile & Workspace** | `frontend/app/profile/page.tsx`<br>`GET /api/v1/users/me` | **Implemented** | Account identity, UUID, RBAC role, active session status, tenant workspace isolation policies, and password complexity. |
 | **Scenario Simulation Lab** | `frontend/app/scenarios/page.tsx`<br>`POST /api/v1/analytics/simulate` | **Implemented** | Interactive what-if pricing and discount elasticity simulation. |
 | **Authentication & RBAC** | `POST /api/v1/auth/login` | **Implemented** | JWT Bearer authentication, password hashing (bcrypt), multi-tenant tenant isolation. |
+| **Multi-Tenant SaaS Workspaces** | `frontend/components/layout/Sidebar.tsx`<br>`/api/v1/organizations/*` | **Implemented** | Workspace switching, role-based access control (Owner, Admin, Analyst, Viewer), and email invitation flows. |
+| **Subscription Billing & Quotas** | `frontend/app/billing/page.tsx`<br>`/api/v1/billing/*` | **Implemented** | Stripe checkout sessions, customer portal, Free/Starter/Pro/Enterprise tiers, and usage metering. |
+| **Universal Data Cleaning Studio** | `frontend/app/cleaning/page.tsx`<br>`/api/v1/cleaning/*` | **Implemented** | Autonomous 20-step pipeline, structural profiling, quality scorecards, diff preview, high-speed exports (CSV, XLSX, Parquet, JSON, TSV), and PDF/Excel audit reports. |
+| **Knowledge Assistant & RAG Studio** | `frontend/app/knowledge/page.tsx`<br>`/api/v1/rag/*` | **Implemented** | Dual-layer FAISS vector store, structure-aware chunking, Gemini text-embedding-004 + fallback projection, citation grounding (`[cit_X]`), and 1-click sample policy seeding. |
+| **Forensic Audit Logging** | `frontend/app/audit/page.tsx` | **Implemented** | Immutable event activity logging with actor UUID, IP address, user agent, and payload diffs. |
 
 ---
 
@@ -148,6 +154,29 @@ Deliver a reliable, modular, and audit-ready Sales Intelligence SaaS platform th
 - Context-aware intelligence grounded in live sales metrics, stock levels, and forecasting models.
 - Provides fallback diagnostics when API keys are unconfigured or upstream models return errors.
 
+### 6.7 Multi-Tenant SaaS Platform & RBAC
+- Organization workspaces with isolated customer databases, filesystem vaults, and vector indices.
+- Role-based permissions (`OWNER`, `ADMIN`, `ANALYST`, `VIEWER`).
+- Workspace switcher allowing users to switch between organizations seamlessly.
+- Subscription billing integrated with Stripe, supporting Free, Starter, Professional, and Enterprise tiers with quota enforcement.
+- Immutable audit log capturing user actions, timestamps, actor IDs, and IP addresses.
+
+### 6.8 Universal Data Cleaning & Preprocessing Studio
+- 20-step autonomous data cleaning pipeline supporting tabular, time-series, text, and semi-structured datasets.
+- Structural profiling and quality scorecards (completeness, validity, uniqueness, consistency).
+- Side-by-side before/after preview diff for verification.
+- High-speed exports supporting CSV, Excel (`.xlsx`), Apache Parquet (`.parquet`), JSON (`.json`), and TSV (`.tsv`).
+- Comprehensive audit reports in PDF, formatted multi-sheet Excel, and machine-readable JSON formats.
+- Safe promotion of cleaned datasets directly into the live sales ledger.
+
+### 6.9 Knowledge Assistant & RAG Studio
+- Ingestion of unstructured documents (PDF, DOCX, TXT, MD, CSV, JSON) into tenant-isolated knowledge vaults.
+- Structure-aware chunking preserving page numbers and section headers.
+- Dual-layer vector store utilizing FAISS on disk for speed and SQLite/PostgreSQL for metadata.
+- Dual embedding pipeline utilizing Gemini `text-embedding-004` (768-D) with deterministic offline semantic projection fallback.
+- Semantic chat assistant answering queries with verifiable source citations (`[cit_1]`, `[cit_2]`), cross-referenced with live ledger actuals.
+- 1-click sample policy seeding for instant demonstration and onboarding.
+
 ---
 
 ## 7. Supported Data Schema & Aliases
@@ -201,6 +230,11 @@ A feature is considered verified only when supported by source code and executio
 - **Verified**: Store-wide distinct order deduplication avoiding category double-counting.
 - **Verified**: Negative profit (commercial loss) and zero sales margin handling.
 - **Verified**: Browser Print-to-PDF export.
+- **Verified**: Multi-tenant workspace isolation and RBAC role gating.
+- **Verified**: 20-step data cleaning pipeline execution with quality scorecard.
+- **Verified**: Multi-format high-speed exports (CSV, XLSX, Parquet, JSON, TSV) and audit reports (PDF, Excel, JSON).
+- **Verified**: Dual-layer FAISS vector search and citation grounding in RAG Studio.
+- **Verified**: 1-click sample corporate policy seeding.
 
 ---
 
