@@ -86,7 +86,7 @@ Synchronized documents in `docs/`:
 - `docs/DATA_PIPELINE.md` — Data Ingestion & ETL Pipeline
 - `docs/MODELS.md` — Forecasting & ML Models
 - `docs/TESTING.md` — Quality Assurance & Testing Strategy
-- `docs/AUTHENTICATION_AND_SECURITY.md` (and `docs/SECURITY.md`)
+- `docs/SECURITY.md` — Security & Authentication Specification
 - `docs/ENVIRONMENT.md` — Environment & Local Setup
 - `docs/DEPLOYMENT.md` — Deployment Strategy
 - `docs/MONITORING.md` — Monitoring & Observability

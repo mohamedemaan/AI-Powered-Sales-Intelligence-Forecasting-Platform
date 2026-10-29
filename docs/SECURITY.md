@@ -1,7 +1,7 @@
 # Sales Intelligence Platform
 # Security & Authentication Specification
 
-**Document:** SECURITY.md (and AUTHENTICATION_AND_SECURITY.md)  
+**Document:** SECURITY.md  
 **Version:** 2.0  
 **Planning Year:** 2026  
 **Status:** Verified & Synchronized Specification  
