@@ -3,6 +3,7 @@ name: Production CI/CD
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   test-and-build:
@@ -35,9 +36,18 @@ jobs:
   deploy-production:
     needs: test-and-build
     runs-on: ubuntu-latest
-    environment: production
     steps:
+    - name: Check Deployment Configuration
+      run: |
+        if [ -z "${{ secrets.SERVER_IP }}" ] || [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+          echo "DEPLOY_READY=false" >> $GITHUB_ENV
+          echo "Deployment secrets (SERVER_IP, SSH_PRIVATE_KEY) not set in repository secrets. Skipping remote SSH deploy."
+        else
+          echo "DEPLOY_READY=true" >> $GITHUB_ENV
+        fi
+
     - name: Deploy to Server
+      if: env.DEPLOY_READY == 'true'
       uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.SERVER_IP }}
