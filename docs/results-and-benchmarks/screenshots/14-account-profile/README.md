@@ -22,3 +22,4 @@
    `docs/results-and-benchmarks/screenshots/14-account-profile/`
 
 Once placed, it will automatically link and render in the [Screenshot Gallery](../README.md) and [Web Application Test Report](../../WEB_APPLICATION_TEST_REPORT.md).
+
