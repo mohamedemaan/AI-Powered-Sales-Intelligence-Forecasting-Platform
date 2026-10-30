@@ -23,6 +23,7 @@ In accordance with strict non-fabrication principles, all screenshots in this ga
 | **11** | **Knowledge Assistant**| `11-knowledge-assistant/11-knowledge-assistant.png` | `Placeholder Active` | Semantic FAISS vector retrieval and policy source citations |
 | **12** | **Reports & Exports** | `12-reports-exports/12-reports-exports.png` | `Placeholder Active` | 8-format report generation and Professional Sales Summary exports |
 | **13** | **Subscription & Audit**| `13-subscription-audit/13-subscription-audit.png` | `Placeholder Active` | Subscription tier gating, RBAC, and immutable audit logs |
+| **14** | **Account & Profile** | `14-account-profile/14-account-profile.png` | `Placeholder Active` | User profile identity, corporate email, assigned RBAC role, and workspace |
 
 ---
 
@@ -171,6 +172,17 @@ In accordance with strict non-fabrication principles, all screenshots in this ga
 
 ---
 
+### Module 14: User Profile & Account Settings
+**Path**: `docs/results-and-benchmarks/screenshots/14-account-profile/14-account-profile.png`  
+**Description**: Authenticated user identity, username, corporate email, assigned RBAC role (Admin / Analyst), and multi-tenant workspace credentials.
+
+```markdown
+![14 Account & Profile](14-account-profile/14-account-profile.png)
+```
+> *Placeholder Note: Capture the user profile page showing account identity, RBAC role, and workspace settings.*
+
+---
+
 ## 3. Step-by-Step Instructions: How to Add Real Screenshots
 
 Follow this step-by-step guide to capture and place application screenshots into the repository.
@@ -199,6 +211,7 @@ Save your screenshot as a `.png` file using the exact standard filename for that
 - Module 11: `11-knowledge-assistant.png`
 - Module 12: `12-reports-exports.png`
 - Module 13: `13-subscription-audit.png`
+- Module 14: `14-account-profile.png`
 
 ### Step 4: Paste / Move the Image into its Target Directory
 Copy your saved image into the matching subfolder under `docs/results-and-benchmarks/screenshots/`:
