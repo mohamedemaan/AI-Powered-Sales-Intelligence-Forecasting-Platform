@@ -496,8 +496,8 @@ def get_categories_breakdown(
         func.count(func.distinct(RawSalesData.order_id)).label("distinct_orders"),
         func.sum(RawSalesData.profit).label("profit") if has_profit_col else literal(None).label("profit")
     ).group_by(
-        func.coalesce(RawSalesData.category, "Uncategorized"),
-        func.coalesce(RawSalesData.sub_category, "General")
+        RawSalesData.category,
+        RawSalesData.sub_category
     ).order_by(desc("revenue"))
 
     rows = cat_query.all()
@@ -600,8 +600,8 @@ def get_product_performance(
         func.sum(RawSalesData.profit).label("profit") if has_profit_col else literal(None).label("profit")
     ).group_by(
         RawSalesData.sku,
-        func.coalesce(RawSalesData.product_name, RawSalesData.sku),
-        func.coalesce(RawSalesData.category, "Uncategorized")
+        RawSalesData.product_name,
+        RawSalesData.category
     )
 
     all_products = p_query.order_by(desc("revenue")).all()

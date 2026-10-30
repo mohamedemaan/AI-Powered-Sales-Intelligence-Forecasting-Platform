@@ -1,6 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, case
 from typing import Optional, Any
 from app.api import deps
 from app.models.tenant import Tenant
@@ -258,14 +258,25 @@ def get_dataset_preview(
         except Exception:
             span_days = None
 
-    null_order_id = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.order_id == None).count()
-    null_product_name = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.product_name == None).count()
-    null_category = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.category == None).count()
-    null_sub_cat = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.sub_category == None).count()
-    null_profit = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.profit == None).count()
-    null_price = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.price == None).count()
-    null_total_sales = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.total_sales == None).count()
-    null_discount = db.query(RawSalesData).filter(RawSalesData.tenant_id == current_tenant.id, RawSalesData.discount_pct == None).count()
+    null_row = db.query(
+        func.sum(case((RawSalesData.order_id == None, 1), else_=0)).label("null_order_id"),
+        func.sum(case((RawSalesData.product_name == None, 1), else_=0)).label("null_product_name"),
+        func.sum(case((RawSalesData.category == None, 1), else_=0)).label("null_category"),
+        func.sum(case((RawSalesData.sub_category == None, 1), else_=0)).label("null_sub_cat"),
+        func.sum(case((RawSalesData.profit == None, 1), else_=0)).label("null_profit"),
+        func.sum(case((RawSalesData.price == None, 1), else_=0)).label("null_price"),
+        func.sum(case((RawSalesData.total_sales == None, 1), else_=0)).label("null_total_sales"),
+        func.sum(case((RawSalesData.discount_pct == None, 1), else_=0)).label("null_discount"),
+    ).filter(RawSalesData.tenant_id == current_tenant.id).first()
+
+    null_order_id = int(null_row[0] or 0)
+    null_product_name = int(null_row[1] or 0)
+    null_category = int(null_row[2] or 0)
+    null_sub_cat = int(null_row[3] or 0)
+    null_profit = int(null_row[4] or 0)
+    null_price = int(null_row[5] or 0)
+    null_total_sales = int(null_row[6] or 0)
+    null_discount = int(null_row[7] or 0)
 
     columns = [
         {"name": "date", "type": "Date", "nullable": False, "description": "Transaction calendar date"},
