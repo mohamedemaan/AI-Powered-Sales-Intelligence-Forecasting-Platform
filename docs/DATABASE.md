@@ -4,18 +4,19 @@
 **Version:** 3.0  
 **Planning Year:** 2026  
 **Last Synchronized:** October 30, 2026  
-**Engines:** SQLite 3 (Local Development) / PostgreSQL 15 (Production Container)  
+**Engines:** SQLite 3 (Local Development) / PostgreSQL 15 (Docker) / Neon Serverless PostgreSQL (Production Cloud)  
 **ORM:** SQLAlchemy 2.0  
-**Migration Engine:** Alembic + SQLite Startup Auto-Migrator
+**Migration Engine:** Alembic + SQLAlchemy Metadata Engine + SQLite Startup Auto-Migrator
 
 ---
 
 ## 1. Database Architecture Overview
 
-The database layer balances local zero-configuration developer experience with multi-tenant PostgreSQL containerization.
+The database layer balances local zero-configuration developer experience with multi-tenant PostgreSQL containerization and serverless cloud deployment.
 
 - **Development Engine**: SQLite (`backend/sql_app.db`) managed via `sqlite:////sql_app.db`.
-- **Production Engine**: PostgreSQL 15 (`postgresql://postgres:password@db:5432/sales_intel`).
+- **Production Cloud Engine**: Neon Serverless PostgreSQL (`postgresql://...neon.tech/neondb?sslmode=require`) equipped with PgBouncer connection pooling, `pool_pre_ping=True`, and `pool_recycle=300`.
+- **Container Engine**: PostgreSQL 15 (`postgresql://postgres:password@db:5432/sales_intel`).
 - **Base Model Standard**: All domain entities inherit from `BaseModel` ([`backend/app/db/base.py`](file:///c:/Users/EMAAN/AI-Powered%20Sales%20Intelligence%20%26%20Forecasting%20Platform/backend/app/db/base.py)), featuring:
   - `id`: `UUID(as_uuid=True)` / `VARCHAR(36)` primary key.
   - `created_at`: `DATETIME` with UTC timezone, initialized via `func.now()`.
