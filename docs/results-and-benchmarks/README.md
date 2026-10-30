@@ -23,7 +23,8 @@ The Results & Benchmarks suite is organized into the following specialized docum
 
 | Document | Description | Key Contents |
 | :--- | :--- | :--- |
-| [**Web Application Testing Report**](WEB_APPLICATION_TEST_REPORT.md) | Exhaustive 13-module QA report and architectural test audit | Feature coverage, test scenarios, expected vs actual results, and observations |
+| [**Results & Benchmarks Master Document**](../../RESULTS_AND_BENCHMARKS.md) | Single unified 14-topic master file with screenshots & reports | Numbered topics, embedded visual evidence, and QA audits |
+| [**Web Application Testing Report**](WEB_APPLICATION_TEST_REPORT.md) | Exhaustive QA report and architectural test audit | Feature coverage, test scenarios, expected vs actual results |
 | [**Verified Test Metrics**](TEST_METRICS.md) | Empirical financial, forecasting, and anomaly telemetry | Ground-truth metrics: \$2.32M sales, 5,111 orders, 434 anomalies, 45.2% WAPE |
 | [**Test Cases & Verification Matrix**](TEST_CASES.md) | Structured test case ledger with standardized statuses | Detailed test IDs (`SM-OV-001`, `SM-DI-001`, etc.) and execution evidence |
 | [**Application Screenshots Gallery**](screenshots/README.md) | Visual evidence gallery and capture instructions | 13 module folders with standardized placeholder filenames and SBS guide |
