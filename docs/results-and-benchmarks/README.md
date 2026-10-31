@@ -24,6 +24,7 @@ The Results & Benchmarks suite is organized into the following specialized docum
 | Document | Description | Key Contents |
 | :--- | :--- | :--- |
 | [**Results & Benchmarks Master Document**](../../RESULTS_AND_BENCHMARKS.md) | Single unified 14-topic master file with screenshots & reports | Numbered topics, embedded visual evidence, and QA audits |
+| [**Comparison Test Report**](COMPARISON_TEST_REPORT.md) | Power BI vs. Tableau vs. Zoho vs. SalesMind AI comparative assessment | Feature matrix, workflow analysis, integrity notice, fair protocol |
 | [**Web Application Testing Report**](WEB_APPLICATION_TEST_REPORT.md) | Exhaustive QA report and architectural test audit | Feature coverage, test scenarios, expected vs actual results |
 | [**Verified Test Metrics**](TEST_METRICS.md) | Empirical financial, forecasting, and anomaly telemetry | Ground-truth metrics: \$2.32M sales, 5,111 orders, 434 anomalies, 45.2% WAPE |
 | [**Test Cases & Verification Matrix**](TEST_CASES.md) | Structured test case ledger with standardized statuses | Detailed test IDs (`SM-OV-001`, `SM-DI-001`, etc.) and execution evidence |

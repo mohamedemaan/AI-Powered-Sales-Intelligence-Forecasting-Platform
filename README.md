@@ -3,11 +3,13 @@
 <div align="center">
 
 [![Results & Benchmarks](https://img.shields.io/badge/📊_Results_&_Benchmarks-View_Master_Doc-007ACC?style=for-the-badge&logo=github)](RESULTS_AND_BENCHMARKS.md)
+[![Comparison Report](https://img.shields.io/badge/⚖️_Comparison_Report-Power_BI_|_Tableau_|_Zoho-7928CA?style=for-the-badge)](docs/results-and-benchmarks/COMPARISON_TEST_REPORT.md)
 [![QA Test Report](https://img.shields.io/badge/📋_QA_Test_Report-100%25_PASSED-success?style=for-the-badge)](docs/results-and-benchmarks/WEB_APPLICATION_TEST_REPORT.md)
 [![Screenshots Gallery](https://img.shields.io/badge/🖼️_Screenshots_Gallery-14_Modules-blueviolet?style=for-the-badge)](docs/results-and-benchmarks/screenshots/README.md)
 [![Verified Metrics](https://img.shields.io/badge/📈_Verified_Metrics-10k+_Records-orange?style=for-the-badge)](docs/results-and-benchmarks/TEST_METRICS.md)
 
-| [📖 Overview](#sales-intel-ai--sales-prediction-dashboard--analytics-platform) | [📊 Results & Benchmarks](RESULTS_AND_BENCHMARKS.md) | [📋 QA Test Report](docs/results-and-benchmarks/WEB_APPLICATION_TEST_REPORT.md) | [🖼️ Screenshots Gallery](docs/results-and-benchmarks/screenshots/README.md) | [📈 Verified Metrics](docs/results-and-benchmarks/TEST_METRICS.md) | [🧪 Test Cases](docs/results-and-benchmarks/TEST_CASES.md) |
+| [📖 Overview](#sales-intel-ai--sales-prediction-dashboard--analytics-platform) | [📊 Results & Benchmarks](RESULTS_AND_BENCHMARKS.md) | [⚖️ Comparison Report](docs/results-and-benchmarks/COMPARISON_TEST_REPORT.md) | [📋 QA Test Report](docs/results-and-benchmarks/WEB_APPLICATION_TEST_REPORT.md) | [🖼️ Screenshots Gallery](docs/results-and-benchmarks/screenshots/README.md) | [📈 Verified Metrics](docs/results-and-benchmarks/TEST_METRICS.md) |
+|:---:|:---:|:---:|:---:|:---:|:---:|
 |:---:|:---:|:---:|:---:|:---:|:---:|
 
 </div>
@@ -22,6 +24,14 @@
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.3.0-38B2AC?logo=tailwind-css)](https://tailwindcss.com)
 
 A production-grade, AI-powered Sales Intelligence and Prediction Platform. Integrates empirical transactional ledger analysis, time-series forecasting (Seasonal Naive, Auto-ARIMA), automated anomaly detection with dynamic z-scoring, business scenario simulation, LLM-based Gemini Pro advisory, audited Professional Sales Summary Reports, and multi-tenant SaaS architecture.
+
+---
+
+## Comparison Test Report
+
+Explore the comparative evaluation of SalesMind AI against Microsoft Power BI, Tableau, and Zoho Analytics. The report covers application capabilities, feature-wise comparison, testing methodology, accuracy, efficiency, scalability, and overall findings.
+
+📊 [View Complete Comparison Test Report](docs/results-and-benchmarks/COMPARISON_TEST_REPORT.md)
 
 ---
 
@@ -218,6 +228,7 @@ SalesMind AI has undergone exhaustive functional quality assurance and telemetry
 
 ### Detailed Verification Reports:
 - 🏆 [**Results & Benchmarks Master Document**](RESULTS_AND_BENCHMARKS.md) — Unified 14-topic evidence document containing screenshots, test reports, and verified metrics.
+- ⚖️ [**Comparison Test Report (Power BI vs Tableau vs Zoho)**](docs/results-and-benchmarks/COMPARISON_TEST_REPORT.md) — Predictive comparative evaluation across 4 platforms.
 - 📋 [**Web Application Testing Report**](docs/results-and-benchmarks/WEB_APPLICATION_TEST_REPORT.md) — Comprehensive functional assessment, boundary checks, and system testing.
 - 📊 [**Verified Test Metrics**](docs/results-and-benchmarks/TEST_METRICS.md) — Empirical financial KPIs, forecasting error bounds (WAPE / MAE), and anomaly telemetry.
 - 🧪 [**Test Cases & Verification Matrix**](docs/results-and-benchmarks/TEST_CASES.md) — Formal test case ledger (`SM-OV-001`, `SM-DI-001`, etc.) with execution results.
@@ -230,6 +241,7 @@ SalesMind AI has undergone exhaustive functional quality assurance and telemetry
 
 Full architectural and operational documentation is synchronized in the [`docs/`](docs/) directory:
 
+- [Comparison Test Report (Power BI vs Tableau vs Zoho)](docs/results-and-benchmarks/COMPARISON_TEST_REPORT.md)
 - [Results & Benchmarks Suite](docs/results-and-benchmarks/README.md)
 - [Web Application Testing Report](docs/results-and-benchmarks/WEB_APPLICATION_TEST_REPORT.md)
 - [Verified Test Metrics](docs/results-and-benchmarks/TEST_METRICS.md)
