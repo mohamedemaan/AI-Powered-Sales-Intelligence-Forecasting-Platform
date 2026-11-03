@@ -1,4 +1,4 @@
-# Sales Intel AI — Sales Prediction Dashboard & Analytics Platform
+# SalesMind AI — AI-Powered Sales Intelligence & Forecasting Platform
 
 <div align="center">
 
@@ -8,8 +8,7 @@
 [![Screenshots Gallery](https://img.shields.io/badge/🖼️_Screenshots_Gallery-14_Modules-blueviolet?style=for-the-badge)](docs/results-and-benchmarks/screenshots/README.md)
 [![Verified Metrics](https://img.shields.io/badge/📈_Verified_Metrics-10k+_Records-orange?style=for-the-badge)](docs/results-and-benchmarks/TEST_METRICS.md)
 
-| [📖 Overview](#sales-intel-ai--sales-prediction-dashboard--analytics-platform) | [📊 Results & Benchmarks](RESULTS_AND_BENCHMARKS.md) | [⚖️ Comparison Report](docs/results-and-benchmarks/COMPARISON_TEST_REPORT.md) | [📋 QA Test Report](docs/results-and-benchmarks/WEB_APPLICATION_TEST_REPORT.md) | [🖼️ Screenshots Gallery](docs/results-and-benchmarks/screenshots/README.md) | [📈 Verified Metrics](docs/results-and-benchmarks/TEST_METRICS.md) |
-|:---:|:---:|:---:|:---:|:---:|:---:|
+| [📖 Overview](#salesmind-ai--ai-powered-sales-intelligence--forecasting-platform) | [📊 Results & Benchmarks](RESULTS_AND_BENCHMARKS.md) | [⚖️ Comparison Report](docs/results-and-benchmarks/COMPARISON_TEST_REPORT.md) | [📋 QA Test Report](docs/results-and-benchmarks/WEB_APPLICATION_TEST_REPORT.md) | [🖼️ Screenshots Gallery](docs/results-and-benchmarks/screenshots/README.md) | [📈 Verified Metrics](docs/results-and-benchmarks/TEST_METRICS.md) |
 |:---:|:---:|:---:|:---:|:---:|:---:|
 
 </div>
@@ -275,3 +274,20 @@ Full architectural and operational documentation is synchronized in the [`docs/`
 ## License
 
 This project is licensed under the MIT License.
+
+---
+
+## ![👨‍💻](https://fonts.gstatic.com/s/e/notoemoji/17.0/1f468_200d_1f4bb/32.png) About the Author
+
+**Mohammed Emaan**<br>
+AI/ML Engineer | B.Tech Artificial Intelligence & Data Science Student
+
+Passionate about Artificial Intelligence, Machine Learning, and Data Science, I build practical AI-powered applications and intelligent analytics solutions.<br>
+I’m interested in developing scalable software, predictive models, and data-driven products that solve real-world problems.
+
+| Platform | Link |
+|:---|:---|
+| ![💼](https://fonts.gstatic.com/s/e/notoemoji/17.0/1f4bc/32.png) LinkedIn | [Connect on LinkedIn](https://linkedin.com/in/mohamed-emaan-05b829408) |
+| ![🐙](https://fonts.gstatic.com/s/e/notoemoji/17.0/1f419/32.png) GitHub | [Explore GitHub Profile](https://github.com/mohamedemaan) |
+| ![📧](https://fonts.gstatic.com/s/e/notoemoji/17.0/1f4e7/32.png) Email | [Contact via Email](mailto:mohamedemaan.a@gmail.com) |
+| ![🌐](https://fonts.gstatic.com/s/e/notoemoji/17.0/1f310/32.png) Live Website | No verified production URL documented |
