@@ -290,4 +290,4 @@ I’m interested in developing scalable software, predictive models, and data-dr
 | ![💼](https://fonts.gstatic.com/s/e/notoemoji/17.0/1f4bc/32.png) LinkedIn | [Connect on LinkedIn](https://linkedin.com/in/mohamed-emaan-05b829408) |
 | ![🐙](https://fonts.gstatic.com/s/e/notoemoji/17.0/1f419/32.png) GitHub | [Explore GitHub Profile](https://github.com/mohamedemaan) |
 | ![📧](https://fonts.gstatic.com/s/e/notoemoji/17.0/1f4e7/32.png) Email | [Contact via Email](mailto:mohamedemaan.a@gmail.com) |
-| ![🌐](https://fonts.gstatic.com/s/e/notoemoji/17.0/1f310/32.png) Live Website | No verified production URL documented |
+| ![🌐](https://fonts.gstatic.com/s/e/notoemoji/17.0/1f310/32.png) Live Website | [Visit SalesMind AI](https://ai-powered-sales-intelligence-forec.vercel.app/) |
